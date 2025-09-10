@@ -1,0 +1,485 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Member Card Styles */
+.member-card {
+  width: 320px;
+  height: 208px;
+  background: white;
+  border: 2px solid #d1d5db;
+  border-radius: 8px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Print Styles for Label & Barcode */
+@media print {
+  /* Hide everything except print area wrapper */
+  body > *:not(.print-area-wrapper):not(.member-cards-print-wrapper) {
+    display: none !important;
+  }
+  
+  /* Ensure member cards print wrapper takes full space */
+  .member-cards-print-wrapper {
+    width: 100% !important;
+    height: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    display: block !important;
+  }
+  
+  /* Ensure print area wrapper takes full space */
+  .print-area-wrapper {
+    width: 100% !important;
+    height: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    display: block !important;
+  }
+
+  /* Ensure print-area is visible and takes full space */
+  .print-area {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    position: static !important;
+    width: 100% !important;
+    height: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 1rem !important;
+  }
+  
+  .member-card {
+    break-inside: avoid !important;
+  }
+  
+  /* Ensure all elements within print-area are visible */
+  .print-area * {
+    visibility: visible !important;
+    opacity: 1 !important;
+  }
+  
+  /* Page settings */
+  @page {
+    size: A4;
+    margin: 1cm;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  
+  /* Label styling for print */
+  .print-area .border-2 {
+    border: 2px solid #000 !important;
+    -webkit-print-color-adjust: exact;
+  }
+  
+  .print-area .border {
+    border: 1px solid #000 !important;
+    -webkit-print-color-adjust: exact;
+  }
+  
+  .print-area .bg-black {
+    background-color: #000 !important;
+    -webkit-print-color-adjust: exact;
+  }
+  
+  .print-area .bg-white {
+    background-color: #fff !important;
+    -webkit-print-color-adjust: exact;
+  }
+  
+  .print-area .bg-gray-50 {
+    background-color: #f9fafb !important;
+    -webkit-print-color-adjust: exact;
+  }
+  
+  .print-area .bg-gray-100 {
+    background-color: #f3f4f6 !important;
+    -webkit-print-color-adjust: exact;
+  }
+  
+  .print-area .bg-gray-200 {
+    background-color: #e5e7eb !important;
+    -webkit-print-color-adjust: exact;
+  }
+  
+  .print-area .bg-gray-300 {
+    background-color: #d1d5db !important;
+    -webkit-print-color-adjust: exact;
+  }
+  
+  /* Text colors for print */
+  .print-area .text-gray-900 {
+    color: #111827 !important;
+  }
+  
+  .print-area .text-gray-700 {
+    color: #374151 !important;
+  }
+  
+  .print-area .text-gray-600 {
+    color: #4b5563 !important;
+  }
+  
+  .print-area .text-gray-500 {
+    color: #6b7280 !important;
+  }
+  
+  /* Font sizes for print */
+  .print-area .text-xs {
+    font-size: 10px !important;
+  }
+  
+  .print-area .text-sm {
+    font-size: 12px !important;
+  }
+  
+  .print-area .text-lg {
+    font-size: 16px !important;
+  }
+  
+  .print-area .text-xl {
+    font-size: 18px !important;
+  }
+  
+  /* Font weights for print */
+  .print-area .font-bold {
+    font-weight: 700 !important;
+  }
+  
+  .print-area .font-semibold {
+    font-weight: 600 !important;
+  }
+  
+  .print-area .font-medium {
+    font-weight: 500 !important;
+  }
+  
+  /* Layout for print */
+  .print-area .grid {
+    display: grid !important;
+  }
+  
+  .print-area .flex {
+    display: flex !important;
+  }
+  
+  .print-area .items-center {
+    align-items: center !important;
+  }
+  
+  .print-area .justify-center {
+    justify-content: center !important;
+  }
+  
+  .print-area .justify-between {
+    justify-content: space-between !important;
+  }
+  
+  .print-area .space-x-3 > * + * {
+    margin-left: 0.75rem !important;
+  }
+  
+  .print-area .gap-6 {
+    gap: 1.5rem !important;
+  }
+  
+  .print-area .gap-4 {
+    gap: 1rem !important;
+  }
+  
+  /* Padding and margins for print */
+  .print-area .p-4 {
+    padding: 1rem !important;
+  }
+  
+  .print-area .p-6 {
+    padding: 1.5rem !important;
+  }
+  
+  .print-area .px-3 {
+    padding-left: 0.75rem !important;
+    padding-right: 0.75rem !important;
+  }
+  
+  .print-area .py-1 {
+    padding-top: 0.25rem !important;
+    padding-bottom: 0.25rem !important;
+  }
+  
+  .print-area .mb-2 {
+    margin-bottom: 0.5rem !important;
+  }
+  
+  .print-area .mb-4 {
+    margin-bottom: 1rem !important;
+  }
+  
+  .print-area .mr-2 {
+    margin-right: 0.5rem !important;
+  }
+  
+  .print-area .pr-2 {
+    padding-right: 0.5rem !important;
+  }
+  
+  .print-area .pl-2 {
+    padding-left: 0.5rem !important;
+  }
+  
+  /* Dimensions for print */
+  .print-area .w-80 {
+    width: 20rem !important;
+  }
+  
+  .print-area .h-48 {
+    width: 12rem !important;
+  }
+  
+  .print-area .h-12 {
+    height: 3rem !important;
+  }
+  
+  .print-area .w-full {
+    width: 100% !important;
+  }
+  
+  .print-area .flex-1 {
+    flex: 1 1 0% !important;
+  }
+  
+  /* Rounded corners for print */
+  .print-area .rounded-lg {
+    border-radius: 0.5rem !important;
+  }
+  
+  .print-area .rounded-full {
+    border-radius: 9999px !important;
+  }
+  
+  /* Text alignment for print */
+  .print-area .text-center {
+    text-align: center !important;
+  }
+  
+  .print-area .text-left {
+    text-align: left !important;
+  }
+  
+  /* Line height for print */
+  .print-area .leading-tight {
+    line-height: 1.25 !important;
+  }
+  
+  /* Grid columns for print */
+  .print-area .grid-cols-2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+  
+  .print-area .grid-cols-3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  }
+  
+  /* Flex direction for print */
+  .print-area .flex-col {
+    flex-direction: column !important;
+  }
+  
+  /* Break inside avoid for labels */
+  .print-area > div > div {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+}
+
+/* Member Card Styles */
+.member-card {
+  width: 320px;
+  height: 208px;
+  border-radius: 12px;
+  padding: 16px;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.member-card::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  right: -50%;
+  width: 100%;
+  height: 100%;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 50%;
+  z-index: 0;
+}
+
+.member-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  position: relative;
+  z-index: 1;
+}
+
+.member-card-body {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 12px;
+  position: relative;
+  z-index: 1;
+}
+
+.member-photo {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  border: 2px solid #dc2626;
+  object-fit: cover;
+}
+
+.member-info h3 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 4px 0;
+  color: #1f2937;
+}
+
+.member-info p {
+  font-size: 12px;
+  margin: 0;
+  margin-bottom: 2px;
+}
+
+.status-siswa {
+  background: #dc2626;
+  color: white;
+}
+
+.status-guru {
+  background: #059669;
+  color: white;
+}
+
+.status-pustakawan {
+  background: #7c3aed;
+  color: white;
+}
+
+.status-staff {
+  background: #ea580c;
+  color: white;
+}
+
+.member-barcode {
+  position: relative;
+  z-index: 1;
+}
+
+/* Print styles for member cards */
+@media print {
+  body > *:not(.member-cards-print-wrapper) {
+    display: none !important;
+  }
+  
+  .member-cards-print-wrapper {
+    width: 100% !important;
+    height: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    display: block !important;
+  }
+  
+  .member-cards-print-area {
+    display: grid !important;
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 1rem !important;
+    width: 100% !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    position: static !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  
+  .member-cards-print-area * {
+    visibility: visible !important;
+    opacity: 1 !important;
+  }
+  
+  .member-card {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+    width: 8cm !important;
+    height: 5cm !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  
+  .member-card::before {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  
+  .member-photo {
+    border: 2px solid #dc2626 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  
+  .status-siswa {
+    background: #dc2626 !important;
+    color: white !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  
+  .status-guru {
+    background: #059669 !important;
+    color: white !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  
+  .status-pustakawan {
+    background: #7c3aed !important;
+    color: white !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  
+  .status-staff {
+    background: #ea580c !important;
+    color: white !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  
+  .bg-white {
+    background: white !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  
+  .bg-black {
+    background: black !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  
+  @page {
+    size: A4;
+    margin: 1cm;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}
