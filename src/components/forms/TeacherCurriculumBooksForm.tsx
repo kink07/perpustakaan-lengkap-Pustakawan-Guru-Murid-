@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Book, 
   GraduationCap, 
@@ -20,34 +20,19 @@ import {
   Bookmark,
   Star,
   Award,
-  TrendingUp
+  TrendingUp,
+  Loader2
 } from 'lucide-react';
-
-interface CurriculumBook {
-  id: number;
-  title: string;
-  author: string;
-  subject: string;
-  grade: string;
-  chapter: string;
-  learningObjectives: string[];
-  difficulty: 'beginner' | 'intermediate' | 'advanced';
-  estimatedReadingTime: number;
-  assignedClasses: string[];
-  completionRate: number;
-  studentFeedback: number;
-  cover: string;
-  digitalFormats: string[];
-  supplementaryMaterials: string[];
-  lastAssigned: string;
-  status: 'active' | 'archived' | 'under_review';
-}
+import { databaseService } from '../../services/database';
+import { CurriculumBook } from '../../types/database';
 
 function TeacherCurriculumBooksForm() {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterSubject, setFilterSubject] = useState('all');
   const [filterGrade, setFilterGrade] = useState('all');
   const [showAssignModal, setShowAssignModal] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [curriculumBooks, setCurriculumBooks] = useState<CurriculumBook[]>([]);
   const [selectedBook, setSelectedBook] = useState<CurriculumBook | null>(null);
   const [assignmentData, setAssignmentData] = useState({
     selectedClasses: [] as string[],
@@ -57,82 +42,48 @@ function TeacherCurriculumBooksForm() {
     points: 10
   });
 
-  const curriculumBooks: CurriculumBook[] = [
-    {
-      id: 1,
-      title: "Matematika Kelas X - Kurikulum Merdeka",
-      author: "Dr. Ahmad Susanto, M.Pd",
-      subject: "Matematika",
-      grade: "X",
-      chapter: "Fungsi dan Persamaan",
-      learningObjectives: [
-        "Memahami konsep fungsi linear",
-        "Menyelesaikan persamaan kuadrat",
-        "Mengaplikasikan dalam kehidupan sehari-hari"
-      ],
-      difficulty: 'intermediate',
-      estimatedReadingTime: 120,
-      assignedClasses: ["X IPA 1", "X IPA 2"],
-      completionRate: 85,
-      studentFeedback: 4.2,
-      cover: "https://images.pexels.com/photos/159711/books-bookstore-book-reading-159711.jpeg?auto=compress&cs=tinysrgb&w=300",
-      digitalFormats: ["PDF", "E-Book", "Video"],
-      supplementaryMaterials: ["Latihan Soal", "Video Penjelasan", "Simulasi Interaktif"],
-      lastAssigned: "2024-01-15",
-      status: 'active'
-    },
-    {
-      id: 2,
-      title: "Fisika Dasar - Mekanika dan Termodinamika",
-      author: "Dr. Bambang Ruwanto, M.Si",
-      subject: "Fisika",
-      grade: "XI",
-      chapter: "Hukum Newton dan Aplikasinya",
-      learningObjectives: [
-        "Memahami hukum-hukum Newton",
-        "Menganalisis gerak benda",
-        "Menghitung gaya dan percepatan"
-      ],
-      difficulty: 'advanced',
-      estimatedReadingTime: 180,
-      assignedClasses: ["XI IPA 1"],
-      completionRate: 78,
-      studentFeedback: 4.5,
-      cover: "https://images.pexels.com/photos/1029141/pexels-photo-1029141.jpeg?auto=compress&cs=tinysrgb&w=300",
-      digitalFormats: ["PDF", "Video", "Simulasi"],
-      supplementaryMaterials: ["Lab Virtual", "Kalkulator Fisika", "Animasi 3D"],
-      lastAssigned: "2024-01-10",
-      status: 'active'
-    },
-    {
-      id: 3,
-      title: "Bahasa Indonesia Kelas XI - Komunikasi Efektif",
-      author: "Dra. Sri Wahyuni, M.Pd",
-      subject: "Bahasa Indonesia",
-      grade: "XI",
-      chapter: "Teks Argumentasi",
-      learningObjectives: [
-        "Menganalisis struktur teks argumentasi",
-        "Menulis teks argumentasi yang efektif",
-        "Mempresentasikan argumen dengan baik"
-      ],
-      difficulty: 'intermediate',
-      estimatedReadingTime: 90,
-      assignedClasses: ["XI IPA 1", "XI IPS 1"],
-      completionRate: 92,
-      studentFeedback: 4.7,
-      cover: "https://images.pexels.com/photos/1370295/pexels-photo-1370295.jpeg?auto=compress&cs=tinysrgb&w=300",
-      digitalFormats: ["PDF", "Audio Book"],
-      supplementaryMaterials: ["Contoh Teks", "Template Penulisan", "Rubrik Penilaian"],
-      lastAssigned: "2024-01-12",
-      status: 'active'
+  // Load curriculum books from database
+  useEffect(() => {
+    const loadCurriculumBooks = async () => {
+      try {
+        setLoading(true);
+        const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
+        if (currentUser && currentUser.id && currentUser.role === 'teacher') {
+          const books = await databaseService.getCurriculumBooks(currentUser.id);
+          setCurriculumBooks(books);
+        }
+      } catch (error) {
+        console.error('Error loading curriculum books:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadCurriculumBooks();
+  }, []);
+
+  // Create new curriculum book
+  const handleCreateCurriculumBook = async (bookData: Partial<CurriculumBook>) => {
+    try {
+      const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
+      if (currentUser && currentUser.id && currentUser.role === 'teacher') {
+        const newBook = await databaseService.createCurriculumBook(currentUser.id, bookData);
+        if (newBook) {
+          setCurriculumBooks(prev => [newBook, ...prev]);
+        }
+      }
+    } catch (error) {
+      console.error('Error creating curriculum book:', error);
     }
-  ];
+  };
 
   const filteredBooks = curriculumBooks.filter(book => {
-    const matchesSearch = book.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         book.author.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         book.chapter.toLowerCase().includes(searchQuery.toLowerCase());
+    const bookData = book.book;
+    if (!bookData) return false;
+    
+    const matchesSearch = bookData.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                         bookData.author.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                         (book.chapter && book.chapter.toLowerCase().includes(searchQuery.toLowerCase()));
     const matchesSubject = filterSubject === 'all' || book.subject === filterSubject;
     const matchesGrade = filterGrade === 'all' || book.grade === filterGrade;
     return matchesSearch && matchesSubject && matchesGrade;
@@ -415,120 +366,132 @@ function TeacherCurriculumBooksForm() {
 
       {/* Books List */}
       <div className="p-6">
-        <div className="space-y-6">
-          {filteredBooks.map((book) => (
-            <div key={book.id} className="border border-gray-200 rounded-lg p-6 hover:shadow-md transition-shadow">
-              <div className="flex items-start space-x-6">
-                <img
-                  src={book.cover}
-                  alt={book.title}
-                  className="w-20 h-28 object-cover rounded border border-gray-200"
-                />
-                
-                <div className="flex-1">
-                  <div className="flex items-start justify-between mb-3">
-                    <div>
-                      <h3 className="text-lg font-semibold text-gray-900 mb-1">{book.title}</h3>
-                      <p className="text-sm text-gray-600 mb-1">{book.author}</p>
-                      <p className="text-sm text-blue-600 font-medium">{book.subject} - Kelas {book.grade}</p>
-                    </div>
+        {loading ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+            <span className="ml-2 text-gray-600">Memuat buku kurikulum...</span>
+          </div>
+        ) : (
+          <div className="space-y-6">
+            {filteredBooks.map((book) => {
+              const bookData = book.book;
+              if (!bookData) return null;
+              
+              return (
+                <div key={book.id} className="border border-gray-200 rounded-lg p-6 hover:shadow-md transition-shadow">
+                  <div className="flex items-start space-x-6">
+                    <img
+                      src={bookData.cover || "https://images.pexels.com/photos/159711/books-bookstore-book-reading-159711.jpeg?auto=compress&cs=tinysrgb&w=300"}
+                      alt={bookData.title}
+                      className="w-20 h-28 object-cover rounded border border-gray-200"
+                    />
                     
-                    <div className="flex items-center space-x-2">
-                      <span className={`px-3 py-1 rounded-full text-xs font-medium ${getDifficultyColor(book.difficulty)}`}>
-                        {getDifficultyText(book.difficulty)}
-                      </span>
-                      <div className="flex items-center space-x-1">
-                        <Star className="w-4 h-4 text-yellow-400 fill-current" />
-                        <span className="text-sm font-medium">{book.studentFeedback}</span>
+                    <div className="flex-1">
+                      <div className="flex items-start justify-between mb-3">
+                        <div>
+                          <h3 className="text-lg font-semibold text-gray-900 mb-1">{bookData.title}</h3>
+                          <p className="text-sm text-gray-600 mb-1">{bookData.author}</p>
+                          <p className="text-sm text-blue-600 font-medium">{book.subject} - Kelas {book.grade}</p>
+                        </div>
+                        
+                        <div className="flex items-center space-x-2">
+                          <span className={`px-3 py-1 rounded-full text-xs font-medium ${getDifficultyColor(book.difficulty)}`}>
+                            {getDifficultyText(book.difficulty)}
+                          </span>
+                          <div className="flex items-center space-x-1">
+                            <Star className="w-4 h-4 text-yellow-400 fill-current" />
+                            <span className="text-sm font-medium">{book.student_feedback}</span>
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  </div>
-                  
-                  <div className="bg-blue-50 rounded-lg p-3 mb-4">
-                    <p className="text-sm font-medium text-blue-900 mb-2">Bab: {book.chapter}</p>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-                      <div className="flex items-center text-gray-600">
-                        <Clock className="w-4 h-4 mr-2" />
-                        <span>{book.estimatedReadingTime} menit</span>
-                      </div>
-                      <div className="flex items-center text-gray-600">
-                        <Users className="w-4 h-4 mr-2" />
-                        <span>{book.assignedClasses.length} kelas</span>
-                      </div>
-                      <div className="flex items-center text-gray-600">
-                        <Target className="w-4 h-4 mr-2" />
-                        <span>{book.completionRate}% selesai</span>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className="mb-4">
-                    <p className="text-sm font-medium text-gray-700 mb-2">Tujuan Pembelajaran:</p>
-                    <ul className="space-y-1">
-                      {book.learningObjectives.slice(0, 2).map((objective, index) => (
-                        <li key={index} className="flex items-start space-x-2">
-                          <CheckCircle className="w-3 h-3 text-green-600 mt-1 flex-shrink-0" />
-                          <span className="text-xs text-gray-600">{objective}</span>
-                        </li>
-                      ))}
-                      {book.learningObjectives.length > 2 && (
-                        <li className="text-xs text-blue-600 ml-5">+{book.learningObjectives.length - 2} tujuan lainnya</li>
-                      )}
-                    </ul>
-                  </div>
-                  
-                  <div className="mb-4">
-                    <p className="text-sm font-medium text-gray-700 mb-2">Format Digital:</p>
-                    <div className="flex flex-wrap gap-2">
-                      {book.digitalFormats.map((format) => (
-                        <span key={format} className="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">
-                          {format}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                  
-                  <div className="mb-4">
-                    <p className="text-sm font-medium text-gray-700 mb-2">Materi Pendukung:</p>
-                    <div className="flex flex-wrap gap-2">
-                      {book.supplementaryMaterials.map((material) => (
-                        <span key={material} className="px-2 py-1 bg-purple-100 text-purple-800 text-xs rounded-full">
-                          {material}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                  
-                  <div className="flex items-center justify-between">
-                    <div className="text-sm text-gray-500">
-                      Terakhir di-assign: {new Date(book.lastAssigned).toLocaleDateString('id-ID')}
-                    </div>
-                    
-                    <div className="flex items-center space-x-2">
-                      <button className="px-3 py-1 text-blue-600 border border-blue-600 rounded hover:bg-blue-50 transition-colors text-sm">
-                        <Eye className="w-4 h-4 mr-1 inline" />
-                        Preview
-                      </button>
                       
-                      <button className="px-3 py-1 text-green-600 border border-green-600 rounded hover:bg-green-50 transition-colors text-sm">
-                        <BarChart3 className="w-4 h-4 mr-1 inline" />
-                        Statistik
-                      </button>
+                      <div className="bg-blue-50 rounded-lg p-3 mb-4">
+                        <p className="text-sm font-medium text-blue-900 mb-2">Bab: {book.chapter || 'Tidak ada bab'}</p>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                          <div className="flex items-center text-gray-600">
+                            <Clock className="w-4 h-4 mr-2" />
+                            <span>{book.estimated_reading_time} menit</span>
+                          </div>
+                          <div className="flex items-center text-gray-600">
+                            <Users className="w-4 h-4 mr-2" />
+                            <span>{book.assigned_classes.length} kelas</span>
+                          </div>
+                          <div className="flex items-center text-gray-600">
+                            <Target className="w-4 h-4 mr-2" />
+                            <span>{book.completion_rate}% selesai</span>
+                          </div>
+                        </div>
+                      </div>
                       
-                      <button
-                        onClick={() => handleAssignToClass(book)}
-                        className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors text-sm"
-                      >
-                        <Users className="w-4 h-4 mr-1 inline" />
-                        Assign ke Kelas
-                      </button>
+                      <div className="mb-4">
+                        <p className="text-sm font-medium text-gray-700 mb-2">Tujuan Pembelajaran:</p>
+                        <ul className="space-y-1">
+                          {book.learning_objectives.slice(0, 2).map((objective, index) => (
+                            <li key={index} className="flex items-start space-x-2">
+                              <CheckCircle className="w-3 h-3 text-green-600 mt-1 flex-shrink-0" />
+                              <span className="text-xs text-gray-600">{objective}</span>
+                            </li>
+                          ))}
+                          {book.learning_objectives.length > 2 && (
+                            <li className="text-xs text-blue-600 ml-5">+{book.learning_objectives.length - 2} tujuan lainnya</li>
+                          )}
+                        </ul>
+                      </div>
+                      
+                      <div className="mb-4">
+                        <p className="text-sm font-medium text-gray-700 mb-2">Format Digital:</p>
+                        <div className="flex flex-wrap gap-2">
+                          {book.digital_formats.map((format) => (
+                            <span key={format} className="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">
+                              {format}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                      
+                      <div className="mb-4">
+                        <p className="text-sm font-medium text-gray-700 mb-2">Materi Pendukung:</p>
+                        <div className="flex flex-wrap gap-2">
+                          {book.supplementary_materials.map((material) => (
+                            <span key={material} className="px-2 py-1 bg-purple-100 text-purple-800 text-xs rounded-full">
+                              {material}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-center justify-between">
+                        <div className="text-sm text-gray-500">
+                          Terakhir di-assign: {book.last_assigned ? new Date(book.last_assigned).toLocaleDateString('id-ID') : 'Belum pernah'}
+                        </div>
+                        
+                        <div className="flex items-center space-x-2">
+                          <button className="px-3 py-1 text-blue-600 border border-blue-600 rounded hover:bg-blue-50 transition-colors text-sm">
+                            <Eye className="w-4 h-4 mr-1 inline" />
+                            Preview
+                          </button>
+                          
+                          <button className="px-3 py-1 text-green-600 border border-green-600 rounded hover:bg-green-50 transition-colors text-sm">
+                            <BarChart3 className="w-4 h-4 mr-1 inline" />
+                            Statistik
+                          </button>
+                          
+                          <button
+                            onClick={() => handleAssignToClass(book)}
+                            className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors text-sm"
+                          >
+                            <Users className="w-4 h-4 mr-1 inline" />
+                            Assign ke Kelas
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            </div>
-          ))}
-        </div>
+              );
+            })}
+          </div>
+        )}
 
         {filteredBooks.length === 0 && (
           <div className="text-center py-12">

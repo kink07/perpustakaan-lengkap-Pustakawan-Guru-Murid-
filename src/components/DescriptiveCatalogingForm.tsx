@@ -1,39 +1,36 @@
 import React, { useState } from 'react';
 import { 
-  Book, 
-  Save, 
-  X, 
-  Plus, 
-  Search, 
+  Book,
+  Save,
+  X,
+  Plus,
   Upload, 
   Camera,
   FileText,
-  User,
-  Calendar,
-  MapPin,
   Hash,
-  Globe,
-  Tag,
-  Bookmark,
-  Edit3,
-  CheckCircle,
-  AlertCircle
+  Tag
 } from 'lucide-react';
 
 import { BookData } from '../types/book';
 import { DDC_CATEGORIES } from '../constants/ddcCategories';
+import { databaseService } from '../services/database';
+import { User as UserType } from '../types/database';
+import { useNotification } from '../contexts/NotificationContext';
 
 interface DescriptiveCatalogingFormProps {
-  books: BookData[];
-  setBooks: (books: BookData[]) => void;
+  user: UserType;
+  onBookAdded?: () => void;
 }
 
 interface FormBookData extends Omit<BookData, 'id' | 'status' | 'cover' | 'digitalFiles'> {
   coverImage: File | null;
   digitalFiles: File[];
+  subcategory?: string;
+  description?: string;
 }
 
-function DescriptiveCatalogingForm({ books, setBooks }: DescriptiveCatalogingFormProps) {
+function DescriptiveCatalogingForm({ user, onBookAdded }: DescriptiveCatalogingFormProps) {
+  const { showNotification } = useNotification();
   const [bookData, setBookData] = useState<FormBookData>({
     title: '',
     subtitle: '',
@@ -71,13 +68,13 @@ function DescriptiveCatalogingForm({ books, setBooks }: DescriptiveCatalogingFor
     condition: 'Baik',
     abstract: '',
     coverImage: null,
-    digitalFiles: []
+    digitalFiles: [],
+    subcategory: '',
+    description: ''
   });
 
   const [newSubject, setNewSubject] = useState('');
-  const [activeTab, setActiveTab] = useState('basic');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submitStatus, setSubmitStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [dragOver, setDragOver] = useState(false);
 
   const handleInputChange = (field: keyof FormBookData, value: string | number) => {
@@ -208,27 +205,77 @@ function DescriptiveCatalogingForm({ books, setBooks }: DescriptiveCatalogingFor
     e.preventDefault();
     setIsSubmitting(true);
     
-    // Simulate API call
-    setTimeout(() => {
-      // Create new book with proper ID and status
-      const newBook: BookData = {
-        ...bookData,
-        id: Math.max(...books.map(b => b.id), 0) + 1,
-        status: 'Tersedia',
-        cover: bookData.coverImage ? URL.createObjectURL(bookData.coverImage) : undefined,
-        digitalFiles: bookData.digitalFiles.map(file => file.name)
+    try {
+      // Prepare data for database
+      const catalogData = {
+        title: bookData.title,
+        author: bookData.author,
+        isbn: bookData.isbn || undefined,
+        publisher: bookData.publisher || undefined,
+        publication_year: bookData.publicationYear ? parseInt(bookData.publicationYear) : undefined,
+        category: bookData.category || undefined,
+        subcategory: bookData.subcategory || undefined,
+        language: bookData.language || 'Indonesia',
+        pages: bookData.pages ? parseInt(bookData.pages) : undefined,
+        description: bookData.description || undefined,
+        status: 'available' as const,
+        location: bookData.location || undefined,
+        acquisition_date: new Date().toISOString().split('T')[0],
+        acquisition_method: 'Kataloging Manual',
+        price: bookData.price ? parseFloat(bookData.price) : undefined,
+        notes: bookData.notes || undefined,
+        created_by: user.id
       };
+
+      // Save to database
+      const createdBook = await databaseService.createCatalogBook(catalogData);
       
-      // Add to books list
-      setBooks([...books, newBook]);
-      
-      setIsSubmitting(false);
-      setSubmitStatus('success');
-      setTimeout(() => {
-        setSubmitStatus('idle');
+      if (createdBook) {
+        // Create book label automatically
+        await databaseService.createBookLabel(createdBook.id, {
+          label_template: 'standard',
+          label_size: 'medium',
+          barcode_size: 'medium',
+          created_by: user.id
+        });
+
+        // Show success notification
+        showNotification({
+          type: 'success',
+          title: 'Berhasil!',
+          message: 'Buku berhasil ditambahkan!'
+        });
+        
+        // Trigger refresh of books in other components
+        if (onBookAdded) {
+          onBookAdded();
+        }
+        
+        // Reset form immediately
         resetForm();
-      }, 3000);
-    }, 2000);
+        
+        // Scroll to top of the form
+        const formContainer = document.getElementById('cataloging-form');
+        if (formContainer) {
+          formContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        } else {
+          // Fallback to top of page
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+        
+        setIsSubmitting(false);
+      } else {
+        throw new Error('Gagal menyimpan data buku');
+      }
+    } catch (error) {
+      console.error('Error saving book:', error);
+      setIsSubmitting(false);
+      showNotification({
+        type: 'error',
+        title: 'Gagal!',
+        message: 'Gagal menyimpan data buku. Silakan coba lagi.'
+      });
+    }
   };
 
   const resetForm = () => {
@@ -269,31 +316,20 @@ function DescriptiveCatalogingForm({ books, setBooks }: DescriptiveCatalogingFor
       condition: 'Baik',
       abstract: '',
       coverImage: null,
-      digitalFiles: []
+      digitalFiles: [],
+      subcategory: '',
+      description: ''
     });
     setNewSubject('');
-    setSubmitStatus('idle');
   };
 
+  
   return (
-    <div className="bg-white rounded-xl shadow-lg">
+    <div id="cataloging-form" className="bg-white rounded-xl shadow-lg">
+
       {/* Header */}
       <div className="p-6 border-b border-gray-200">
-        <div className="flex items-center justify-between">
-          {submitStatus === 'success' && (
-            <div className="flex items-center space-x-2 text-green-600">
-              <CheckCircle className="w-5 h-5" />
-              <span className="text-sm font-medium">Buku berhasil disimpan!</span>
-            </div>
-          )}
-          
-          {submitStatus === 'error' && (
-            <div className="flex items-center space-x-2 text-red-600">
-              <AlertCircle className="w-5 h-5" />
-              <span className="text-sm font-medium">Gagal menyimpan buku</span>
-            </div>
-          )}
-        </div>
+        <h2 className="text-2xl font-bold text-gray-900">Kataloging Buku</h2>
       </div>
 
 

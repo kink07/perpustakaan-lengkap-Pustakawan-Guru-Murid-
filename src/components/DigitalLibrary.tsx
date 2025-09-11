@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Book, 
   Search, 
@@ -16,36 +16,291 @@ import {
   Mail,
   MapPin as LocationIcon,
   ArrowLeft,
-  LogIn,
   Share2,
   Heart,
-  Bookmark
+  Bookmark,
+  User
 } from 'lucide-react';
 import { BookData } from '../types/book';
 import { DDC_CATEGORIES } from '../constants/ddcCategories';
-import LoginModal from './LoginModal';
 import Dashboard from './Dashboard';
+import { databaseService } from '../services/database';
+import { useNotification } from '../contexts/NotificationContext';
 
 interface DigitalLibraryProps {
-  books: BookData[];
   currentUser?: any;
   onNavigateToDashboard?: () => void;
-  onOpenLogin?: () => void;
+  onNavigateToAuth?: () => void;
+  onBookAdded?: () => void;
+  onNavigateToStatistics?: () => void;
 }
 
-function DigitalLibrary({ books, currentUser, onNavigateToDashboard, onOpenLogin }: DigitalLibraryProps) {
+function DigitalLibrary({ currentUser, onNavigateToDashboard, onNavigateToAuth, onBookAdded, onNavigateToStatistics }: DigitalLibraryProps) {
+  const { showNotification } = useNotification();
+  const [books, setBooks] = useState<BookData[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [favoriteStatus, setFavoriteStatus] = useState<{ [bookId: string]: boolean }>({});
+  const [bookmarkStatus, setBookmarkStatus] = useState<{ [bookId: string]: boolean }>({});
+
+  // Load books from database on component mount
+  useEffect(() => {
+    loadBooks();
+  }, []);
+
+  // Load books from database
+  const loadBooks = async () => {
+    try {
+      const booksData = await databaseService.getCatalogBooks();
+      // Convert catalog books to BookData format
+      const convertedBooks: BookData[] = booksData.map(book => ({
+        id: book.id,
+        title: book.title,
+        author: book.author,
+        category: book.category || '',
+        publisher: book.publisher || '',
+        publicationYear: book.publication_year?.toString() || '',
+        isbn: book.isbn || '',
+        status: book.status === 'available' ? 'Tersedia' : 
+                book.status === 'borrowed' ? 'Dipinjam' : 
+                book.status === 'reserved' ? 'Dipesan' : 
+                book.status === 'damaged' ? 'Rusak' : 'Hilang',
+        cover: book.cover_image_url || undefined,
+        location: book.location || '',
+        description: book.description || '',
+        pages: book.pages?.toString() || '',
+        language: book.language || 'Indonesia',
+        price: book.price?.toString() || '',
+        notes: book.notes || '',
+        // Add default values for required fields
+        subtitle: '',
+        coAuthor: '',
+        editor: '',
+        translator: '',
+        illustrator: '',
+        publicationPlace: '',
+        edition: '',
+        issn: '',
+        subcategory: '',
+        subjects: [],
+        physicalDescription: '',
+        contentType: 'Teks',
+        mediaType: 'Tanpa Mediasi',
+        carrierType: 'Volume',
+        copyNumber: 1,
+        barcode: '',
+        source: '',
+        acquisitionDate: book.acquisition_date || new Date().toISOString().split('T')[0],
+        condition: 'Baik',
+        abstract: '',
+        digitalFiles: []
+      }));
+      setBooks(convertedBooks);
+    } catch (error) {
+      console.error('Error loading books:', error);
+    }
+  };
+
+  // Load existing favorites and bookmarks on component mount
+  useEffect(() => {
+    if (currentUser && (currentUser.role === 'student' || currentUser.role === 'teacher')) {
+      loadUserFavorites();
+      loadUserBookmarks();
+    }
+  }, [currentUser]);
+
+  // Listen for book additions and refresh
+  useEffect(() => {
+    if (onBookAdded) {
+      loadBooks();
+    }
+  }, [onBookAdded]);
+
+  // Load user's existing favorites
+  const loadUserFavorites = async () => {
+    try {
+      const favorites = await databaseService.getStudentFavorites(currentUser!.id);
+      const statusMap: { [bookId: string]: boolean } = {};
+      favorites.forEach(fav => {
+        statusMap[fav.book_id] = true;
+      });
+      setFavoriteStatus(statusMap);
+      console.log('Loaded favorites status:', statusMap);
+    } catch (error) {
+      console.error('Error loading favorites:', error);
+    }
+  };
+
+  // Load user's existing bookmarks
+  const loadUserBookmarks = async () => {
+    try {
+      const bookmarks = await databaseService.getUserBookmarks(currentUser!.id);
+      const statusMap: { [bookId: string]: boolean } = {};
+      bookmarks.forEach(bookmark => {
+        statusMap[bookmark.book_id] = true;
+      });
+      setBookmarkStatus(statusMap);
+      console.log('Loaded bookmarks status:', statusMap);
+    } catch (error) {
+      console.error('Error loading bookmarks:', error);
+    }
+  };
 
   // Filter books based on search and category
-  const filteredBooks = books.filter(book => {
+  const filteredBooks = (books || []).filter(book => {
+    if (!book || !book.title || !book.author) return false;
     const matchesSearch = book.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
                          book.author.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         book.subjects.some(subject => subject.toLowerCase().includes(searchQuery.toLowerCase()));
+                         (book.subjects || []).some(subject => subject.toLowerCase().includes(searchQuery.toLowerCase()));
     const matchesCategory = selectedCategory === 'all' || book.category === selectedCategory;
     return matchesSearch && matchesCategory;
   });
+
+  // Show notification using global notification system
+  const showLocalNotification = (type: 'success' | 'error', message: string) => {
+    showNotification({
+      type,
+      title: type === 'success' ? 'Berhasil!' : 'Gagal!',
+      message
+    });
+  };
+
+  // 1. Share function - untuk semua orang (tanpa login)
+  const handleShare = async (book: BookData) => {
+    const shareData = {
+      title: book.title,
+      text: `Lihat buku "${book.title}" oleh ${book.author}`,
+      url: `${window.location.origin}/book/${book.id}`
+    };
+
+    if (navigator.share) {
+      try {
+        await navigator.share(shareData);
+      } catch (err) {
+        // Fallback to copy to clipboard
+        copyToClipboard(shareData.url);
+      }
+    } else {
+      // Fallback to copy to clipboard
+      copyToClipboard(shareData.url);
+    }
+  };
+
+  // Copy to clipboard function
+  const copyToClipboard = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      showLocalNotification('success', 'Link berhasil disalin ke clipboard!');
+    } catch (err) {
+      showLocalNotification('error', 'Gagal menyalin link');
+    }
+  };
+
+  // 2. Love function - toggle favorit dengan perubahan warna
+  const handleLove = async (book: BookData) => {
+    if (!currentUser) {
+      showLocalNotification('error', 'Silakan login terlebih dahulu untuk menambah ke favorit');
+      return;
+    }
+
+    if (currentUser.role !== 'student' && currentUser.role !== 'teacher') {
+      showLocalNotification('error', 'Fitur favorit hanya untuk siswa dan guru');
+      return;
+    }
+
+    const isCurrentlyFavorite = favoriteStatus[book.id] || false;
+    const newStatus = !isCurrentlyFavorite;
+
+    try {
+      console.log('Toggling favorite for user:', currentUser.id, 'book:', book.id, 'new status:', newStatus);
+      
+      if (newStatus) {
+        // Add to favorites
+        const result = await databaseService.addStudentFavorite(currentUser.id, book.id, {
+          personal_rating: 5,
+          notes: '',
+          tags: []
+        });
+
+        if (result) {
+          setFavoriteStatus(prev => ({ ...prev, [book.id]: true }));
+          showLocalNotification('success', 'Buku berhasil ditambahkan ke favorit!');
+          console.log('Favorite added successfully:', result);
+        } else {
+          showLocalNotification('error', 'Gagal menambahkan ke favorit');
+          console.error('Failed to add favorite - no result returned');
+        }
+      } else {
+        // Remove from favorites
+        const result = await databaseService.removeStudentFavorite(currentUser.id, book.id);
+        
+        if (result) {
+          setFavoriteStatus(prev => ({ ...prev, [book.id]: false }));
+          showLocalNotification('success', 'Buku berhasil dihapus dari favorit!');
+          console.log('Favorite removed successfully');
+        } else {
+          showLocalNotification('error', 'Gagal menghapus dari favorit');
+          console.error('Failed to remove favorite');
+        }
+      }
+    } catch (error) {
+      console.error('Error toggling favorite:', error);
+      showLocalNotification('error', 'Gagal mengubah status favorit');
+    }
+  };
+
+  // 3. Bookmark function - toggle bookmark dengan perubahan warna
+  const handleBookmark = async (book: BookData) => {
+    if (!currentUser) {
+      showLocalNotification('error', 'Silakan login terlebih dahulu untuk menambah bookmark');
+      return;
+    }
+
+    if (currentUser.role !== 'student' && currentUser.role !== 'teacher') {
+      showLocalNotification('error', 'Fitur bookmark hanya untuk siswa dan guru');
+      return;
+    }
+
+    const isCurrentlyBookmarked = bookmarkStatus[book.id] || false;
+    const newStatus = !isCurrentlyBookmarked;
+
+    try {
+      console.log('Toggling bookmark for user:', currentUser.id, 'book:', book.id, 'new status:', newStatus);
+      
+      if (newStatus) {
+        // Add to bookmarks
+        const result = await databaseService.addBookmark(currentUser.id, book.id, {
+          notes: '',
+          tags: []
+        });
+
+        if (result) {
+          setBookmarkStatus(prev => ({ ...prev, [book.id]: true }));
+          showLocalNotification('success', 'Buku berhasil ditambahkan ke bookmark!');
+          console.log('Bookmark added successfully:', result);
+        } else {
+          showLocalNotification('error', 'Gagal menambahkan ke bookmark');
+          console.error('Failed to add bookmark - no result returned');
+        }
+      } else {
+        // Remove from bookmarks
+        const result = await databaseService.removeBookmark(currentUser.id, book.id);
+        
+        if (result) {
+          setBookmarkStatus(prev => ({ ...prev, [book.id]: false }));
+          showLocalNotification('success', 'Buku berhasil dihapus dari bookmark!');
+          console.log('Bookmark removed successfully');
+        } else {
+          showLocalNotification('error', 'Gagal menghapus dari bookmark');
+          console.error('Failed to remove bookmark');
+        }
+      }
+    } catch (error) {
+      console.error('Error toggling bookmark:', error);
+      showLocalNotification('error', 'Gagal mengubah status bookmark');
+    }
+  };
 
   const getFileIcon = (fileType: string) => {
     switch (fileType) {
@@ -81,6 +336,14 @@ function DigitalLibrary({ books, currentUser, onNavigateToDashboard, onOpenLogin
     }
   };
 
+  const handleProfileClick = () => {
+    if (currentUser?.role === 'librarian' && onNavigateToStatistics) {
+      onNavigateToStatistics();
+    } else if (onNavigateToDashboard) {
+      onNavigateToDashboard();
+    }
+  };
+
   return (
     <div className="min-h-screen bg-white">
       {/* Header */}
@@ -100,45 +363,41 @@ function DigitalLibrary({ books, currentUser, onNavigateToDashboard, onOpenLogin
               </div>
             </div>
 
-            {/* Language Toggle */}
+            {/* User Profile and Language Toggle */}
             <div className="flex items-center space-x-4">
+              {/* User Profile */}
               {currentUser ? (
-                <button
-                  onClick={onNavigateToDashboard}
-                  className="flex items-center space-x-3 px-4 py-2 text-gray-700 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                >
-                  <img
-                    src={currentUser.avatar}
-                    alt={currentUser.name}
-                    className="w-8 h-8 rounded-full object-cover"
-                  />
-                  <div className="text-left">
-                    <p className="text-sm font-medium text-gray-900">{currentUser.name}</p>
-                    <p className="text-xs text-gray-500 capitalize">
-                      {currentUser.role === 'student' ? 'Siswa' : currentUser.role === 'teacher' ? 'Guru' : 'Pustakawan'}
-                    </p>
-                  </div>
-                </button>
+                <div className="flex items-center space-x-3">
+                  <button
+                    onClick={handleProfileClick}
+                    className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+                    title={currentUser?.role === 'librarian' ? "Klik untuk ke Dashboard Statistik" : "Klik untuk ke Dashboard"}
+                  >
+                    <div className="w-8 h-8 bg-gradient-to-r from-blue-600 to-purple-600 rounded-full flex items-center justify-center">
+                      <span className="text-white text-sm font-bold">
+                        {currentUser.name ? currentUser.name.charAt(0).toUpperCase() : 'U'}
+                      </span>
+                    </div>
+                  </button>
+                </div>
               ) : (
                 <button
-                  onClick={() => {
-                    if (onOpenLogin) {
-                      onOpenLogin();
-                    }
-                  }}
-                  className="flex items-center space-x-2 px-4 py-2 text-gray-700 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                  onClick={onNavigateToAuth}
+                  className="flex items-center space-x-2 px-3 py-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                  title="Login / Daftar"
                 >
-                  <LogIn className="w-5 h-5" />
-                  <span className="font-medium">Masuk</span>
+                  <User className="w-5 h-5" />
+                  <span className="text-sm font-medium">Login</span>
                 </button>
               )}
               
+              {/* Language Toggle */}
               <div className="flex items-center space-x-2">
-              <Globe className="w-5 h-5 text-gray-600" />
-              <select className="border-none bg-transparent text-gray-700 font-medium focus:outline-none">
-                <option>ID</option>
-                <option>EN</option>
-              </select>
+                <Globe className="w-5 h-5 text-gray-600" />
+                <select className="border-none bg-transparent text-gray-700 font-medium focus:outline-none">
+                  <option>ID</option>
+                  <option>EN</option>
+                </select>
               </div>
             </div>
           </div>
@@ -244,22 +503,41 @@ function DigitalLibrary({ books, currentUser, onNavigateToDashboard, onOpenLogin
                   {/* Action Icons */}
                   <div className="absolute top-3 left-3 flex flex-col space-y-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
                     <button 
+                      onClick={() => handleShare(book)}
                       className="p-2 bg-white bg-opacity-90 hover:bg-opacity-100 rounded-full shadow-md hover:shadow-lg transition-all duration-200"
                       title="Bagikan"
                     >
                       <Share2 className="w-4 h-4 text-gray-700 hover:text-blue-600" />
                     </button>
                     <button 
-                      className="p-2 bg-white bg-opacity-90 hover:bg-opacity-100 rounded-full shadow-md hover:shadow-lg transition-all duration-200"
-                      title="Tambah ke Favorit"
+                      onClick={() => handleLove(book)}
+                      className={`p-2 bg-white bg-opacity-90 hover:bg-opacity-100 rounded-full shadow-md hover:shadow-lg transition-all duration-200 ${
+                        favoriteStatus[book.id] ? 'ring-2 ring-red-500' : ''
+                      }`}
+                      title={favoriteStatus[book.id] ? "Hapus dari Favorit" : "Tambah ke Favorit"}
                     >
-                      <Heart className="w-4 h-4 text-gray-700 hover:text-red-600" />
+                      <Heart 
+                        className={`w-4 h-4 transition-colors duration-200 ${
+                          favoriteStatus[book.id] 
+                            ? 'text-red-600 fill-red-600' 
+                            : 'text-gray-700 hover:text-red-600'
+                        }`} 
+                      />
                     </button>
                     <button 
-                      className="p-2 bg-white bg-opacity-90 hover:bg-opacity-100 rounded-full shadow-md hover:shadow-lg transition-all duration-200"
-                      title="Simpan untuk Nanti"
+                      onClick={() => handleBookmark(book)}
+                      className={`p-2 bg-white bg-opacity-90 hover:bg-opacity-100 rounded-full shadow-md hover:shadow-lg transition-all duration-200 ${
+                        bookmarkStatus[book.id] ? 'ring-2 ring-green-500' : ''
+                      }`}
+                      title={bookmarkStatus[book.id] ? "Hapus dari Bookmark" : "Simpan untuk Nanti"}
                     >
-                      <Bookmark className="w-4 h-4 text-gray-700 hover:text-green-600" />
+                      <Bookmark 
+                        className={`w-4 h-4 transition-colors duration-200 ${
+                          bookmarkStatus[book.id] 
+                            ? 'text-green-600 fill-green-600' 
+                            : 'text-gray-700 hover:text-green-600'
+                        }`} 
+                      />
                     </button>
                   </div>
                 </div>
@@ -292,7 +570,7 @@ function DigitalLibrary({ books, currentUser, onNavigateToDashboard, onOpenLogin
                   <div className="space-y-2">
                     <p className="text-sm font-medium text-gray-700">File Digital:</p>
                     <div className="flex flex-wrap gap-2">
-                      {book.digitalFiles.map((fileType, index) => (
+                      {(book.digitalFiles || []).map((fileType, index) => (
                         <div
                           key={index}
                           className={`flex items-center space-x-1 px-3 py-1 rounded-full text-xs font-medium ${getFileColor(fileType)}`}
@@ -328,9 +606,10 @@ function DigitalLibrary({ books, currentUser, onNavigateToDashboard, onOpenLogin
                   <p className="text-sm text-gray-600">SMAN 1 Jakarta</p>
                 </div>
               </div>
-              <p className="text-gray-600 text-sm">
+              <p className="text-gray-600 text-sm mb-4">
                 Perpustakaan digital modern yang menyediakan akses ke ribuan koleksi buku dan materi pembelajaran untuk mendukung proses belajar mengajar.
               </p>
+              
             </div>
 
             {/* Menu Navigasi */}
@@ -394,6 +673,7 @@ function DigitalLibrary({ books, currentUser, onNavigateToDashboard, onOpenLogin
           </div>
         </div>
       </footer>
+
 
     </div>
   );
