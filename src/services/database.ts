@@ -955,6 +955,75 @@ export const databaseService = {
     }
   },
 
+  // Function untuk memeriksa semua buku yang ditampilkan di UI
+  async checkAllDisplayedBooks(): Promise<void> {
+    try {
+      console.log('=== CHECKING ALL DISPLAYED BOOKS ===');
+      
+      const catalogBooks = await this.getCatalogBooks();
+      console.log('Total books in catalog_books:', catalogBooks.length);
+      
+      // Cek apakah ada buku yang tidak valid
+      const invalidBooks = [];
+      for (const book of catalogBooks) {
+        if (!book.id || !book.title) {
+          invalidBooks.push(book);
+        }
+      }
+      
+      if (invalidBooks.length > 0) {
+        console.warn('Found invalid books:', invalidBooks);
+      } else {
+        console.log('✅ All books in catalog_books are valid');
+      }
+      
+      console.log('=== END CHECK ===');
+    } catch (e) {
+      console.error('Error in checkAllDisplayedBooks:', e);
+    }
+  },
+
+  // Debug function untuk memeriksa data inconsistency
+  async debugBookData(bookId: string): Promise<void> {
+    try {
+      console.log('=== DEBUG: Checking book data for ID:', bookId);
+      
+      // Cek di catalog_books
+      const { data: catalogBook, error: catalogError } = await supabase
+        .from('catalog_books')
+        .select('id, title, author')
+        .eq('id', bookId)
+        .maybeSingle();
+      
+      if (catalogError) {
+        console.error('Error checking catalog_books:', catalogError);
+      } else if (catalogBook) {
+        console.log('✅ Book found in catalog_books:', catalogBook);
+      } else {
+        console.log('❌ Book NOT found in catalog_books');
+      }
+      
+      // Cek di books (jika tabel masih ada)
+      const { data: book, error: bookError } = await supabase
+        .from('books')
+        .select('id, title, author')
+        .eq('id', bookId)
+        .maybeSingle();
+      
+      if (bookError) {
+        console.log('ℹ️ books table error (expected if table does not exist):', bookError.message);
+      } else if (book) {
+        console.log('⚠️ Book found in books table (but not in catalog_books):', book);
+      } else {
+        console.log('ℹ️ Book not found in books table');
+      }
+      
+      console.log('=== END DEBUG ===');
+    } catch (e) {
+      console.error('Error in debugBookData:', e);
+    }
+  },
+
   // Student-specific functions
   async getStudentFavorites(userId: string): Promise<StudentFavorite[]> {
     const { data, error } = await supabase
@@ -999,7 +1068,7 @@ export const databaseService = {
       // 1) Cek apakah buku ada di catalog_books
       const { data: book, error: bookErr } = await supabase
         .from('catalog_books')
-        .select('id')
+        .select('id, title')
         .eq('id', bookId)
         .maybeSingle();
 
@@ -1008,9 +1077,16 @@ export const databaseService = {
         return null;
       }
       if (!book) {
-        console.error('Book not found:', bookId);
+        console.error('Book not found in catalog_books:', bookId);
+        console.error('This book ID does not exist in the catalog_books table');
+        console.error('Please check if the book data is properly synchronized');
+        
+        // Debug untuk memeriksa data inconsistency
+        await this.debugBookData(bookId);
         return null;
       }
+      
+      console.log('Book found in catalog_books:', book.title, 'ID:', book.id);
 
       // 2) Cek apakah favorite sudah ada untuk user ini
       const { data: existing, error: existErr } = await supabase

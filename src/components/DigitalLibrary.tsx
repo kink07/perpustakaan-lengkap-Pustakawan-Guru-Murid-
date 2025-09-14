@@ -56,6 +56,9 @@ function DigitalLibrary({ currentUser, onNavigateToDashboard, onNavigateToAuth, 
       const booksData = await databaseService.getCatalogBooks();
       // Convert catalog books to BookData format
       console.log('Loading books from database:', booksData);
+      
+      // Debug: Periksa semua buku yang ditampilkan
+      await databaseService.checkAllDisplayedBooks();
       const convertedBooks: BookData[] = booksData.map(book => ({
         id: book.id,
         title: book.title,
