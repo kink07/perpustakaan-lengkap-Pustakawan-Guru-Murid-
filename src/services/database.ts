@@ -934,14 +934,32 @@ export const databaseService = {
     }
   },
 
+  // Helper function untuk mendapatkan data buku berdasarkan ID
+  async getBookByIdFromCatalog(bookId: string): Promise<any | null> {
+    try {
+      const { data, error } = await supabase
+        .from('catalog_books')
+        .select('*')
+        .eq('id', bookId)
+        .single();
+      
+      if (error) {
+        console.error('Error fetching book from catalog:', error);
+        return null;
+      }
+      
+      return data;
+    } catch (e) {
+      console.error('Unhandled error in getBookByIdFromCatalog:', e);
+      return null;
+    }
+  },
+
   // Student-specific functions
   async getStudentFavorites(userId: string): Promise<StudentFavorite[]> {
     const { data, error } = await supabase
       .from(TABLES.STUDENT_FAVORITES)
-      .select(`
-        *,
-        book:catalog_books(*)
-      `)
+      .select('*')
       .eq('user_id', userId)
       .order('date_added', { ascending: false });
     
@@ -951,6 +969,29 @@ export const databaseService = {
     }
     
     return data || [];
+  },
+
+  // Fungsi untuk mendapatkan favorites dengan data buku lengkap
+  async getStudentFavoritesWithBooks(userId: string): Promise<any[]> {
+    try {
+      const favorites = await this.getStudentFavorites(userId);
+      const favoritesWithBooks = [];
+      
+      for (const favorite of favorites) {
+        const bookData = await this.getBookByIdFromCatalog(favorite.book_id);
+        if (bookData) {
+          favoritesWithBooks.push({
+            ...favorite,
+            book: bookData
+          });
+        }
+      }
+      
+      return favoritesWithBooks;
+    } catch (e) {
+      console.error('Error fetching student favorites with books:', e);
+      return [];
+    }
   },
 
   async addStudentFavorite(userId: string, bookId: string, data: Partial<StudentFavorite>): Promise<StudentFavorite | null> {
@@ -988,21 +1029,25 @@ export const databaseService = {
         return existing as StudentFavorite;
       }
 
-      // 3) Insert favorite
+      // 3) Insert favorite dengan approach yang lebih robust
+      const insertData = {
+        user_id: userId,
+        book_id: bookId,
+        personal_rating: data.personal_rating || 5,
+        notes: data.notes || '',
+        tags: data.tags || [],
+        read_count: 0,
+        date_added: new Date().toISOString()
+      };
+
+      // Coba insert dengan upsert untuk menghindari duplicate
       const { data: result, error } = await supabase
         .from(TABLES.STUDENT_FAVORITES)
-        .insert({
-          user_id: userId,
-          book_id: bookId,
-          personal_rating: data.personal_rating || 5,
-          notes: data.notes,
-          tags: data.tags || [],
-          read_count: 0
+        .upsert(insertData, { 
+          onConflict: 'user_id,book_id',
+          ignoreDuplicates: false 
         })
-        .select(`
-          *,
-          book:catalog_books(*)
-        `)
+        .select('*')
         .single();
       
       if (error) {
@@ -1010,8 +1055,19 @@ export const databaseService = {
         // Postgres FK violation code 23503
         if (error.code === '23503') {
           console.error('Foreign key constraint violation - book not found in catalog_books');
+          console.error('This indicates that the foreign key constraint in the database still references the wrong table');
+          console.error('Please check your Supabase database schema and update foreign key constraints');
+          return null;
         } else if (error.code === '23505' || error.status === 409) {
           console.error('Duplicate entry - favorite already exists');
+          // Coba ambil data yang sudah ada
+          const { data: existingData } = await supabase
+            .from(TABLES.STUDENT_FAVORITES)
+            .select('*')
+            .eq('user_id', userId)
+            .eq('book_id', bookId)
+            .single();
+          return existingData;
         } else {
           console.error('Unknown error adding favorite:', error);
         }
@@ -1482,10 +1538,7 @@ export const databaseService = {
   async getUserBookmarks(userId: string): Promise<any[]> {
     const { data, error } = await supabase
       .from(TABLES.BOOKMARKS)
-      .select(`
-        *,
-        book:catalog_books(*)
-      `)
+      .select('*')
       .eq('user_id', userId)
       .order('date_added', { ascending: false });
     
@@ -1495,6 +1548,29 @@ export const databaseService = {
     }
     
     return data || [];
+  },
+
+  // Fungsi untuk mendapatkan bookmarks dengan data buku lengkap
+  async getUserBookmarksWithBooks(userId: string): Promise<any[]> {
+    try {
+      const bookmarks = await this.getUserBookmarks(userId);
+      const bookmarksWithBooks = [];
+      
+      for (const bookmark of bookmarks) {
+        const bookData = await this.getBookByIdFromCatalog(bookmark.book_id);
+        if (bookData) {
+          bookmarksWithBooks.push({
+            ...bookmark,
+            book: bookData
+          });
+        }
+      }
+      
+      return bookmarksWithBooks;
+    } catch (e) {
+      console.error('Error fetching user bookmarks with books:', e);
+      return [];
+    }
   },
 
   async addBookmark(userId: string, bookId: string, bookmarkData: {
@@ -1535,19 +1611,23 @@ export const databaseService = {
         return existing;
       }
 
-      // 3) Insert bookmark
+      // 3) Insert bookmark dengan approach yang lebih robust
+      const insertData = {
+        user_id: userId,
+        book_id: bookId,
+        notes: bookmarkData.notes || '',
+        tags: bookmarkData.tags || [],
+        date_added: new Date().toISOString()
+      };
+
+      // Coba insert dengan upsert untuk menghindari duplicate
       const { data, error } = await supabase
         .from(TABLES.BOOKMARKS)
-        .insert({
-          user_id: userId,
-          book_id: bookId,
-          notes: bookmarkData.notes || '',
-          tags: bookmarkData.tags || []
+        .upsert(insertData, { 
+          onConflict: 'user_id,book_id',
+          ignoreDuplicates: false 
         })
-        .select(`
-          *,
-          book:catalog_books(*)
-        `)
+        .select('*')
         .single();
       
       if (error) {
@@ -1555,8 +1635,19 @@ export const databaseService = {
         // Postgres FK violation code 23503
         if (error.code === '23503') {
           console.error('Foreign key constraint violation - book not found in catalog_books');
+          console.error('This indicates that the foreign key constraint in the database still references the wrong table');
+          console.error('Please check your Supabase database schema and update foreign key constraints');
+          return null;
         } else if (error.code === '23505' || error.status === 409) {
           console.error('Duplicate entry - bookmark already exists');
+          // Coba ambil data yang sudah ada
+          const { data: existingData } = await supabase
+            .from(TABLES.BOOKMARKS)
+            .select('*')
+            .eq('user_id', userId)
+            .eq('book_id', bookId)
+            .single();
+          return existingData;
         } else {
           console.error('Unknown error adding bookmark:', error);
         }
