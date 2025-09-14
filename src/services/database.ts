@@ -284,7 +284,7 @@ export const databaseService = {
   async getBooks(): Promise<Book[]> {
     try {
       const { data, error } = await supabase
-        .from('books')
+        .from('catalog_books')
         .select('*')
         .order('created_at', { ascending: false });
       
@@ -350,7 +350,7 @@ export const databaseService = {
 
   async getBookById(id: string): Promise<Book | null> {
     const { data, error } = await supabase
-      .from('books')
+      .from('catalog_books')
       .select('*')
       .eq('id', id)
       .single();
@@ -365,7 +365,7 @@ export const databaseService = {
 
   async createBook(book: Omit<Book, 'id' | 'created_at' | 'updated_at'>): Promise<Book> {
     const { data, error } = await supabase
-      .from('books')
+      .from('catalog_books')
       .insert([{
         ...book,
         created_at: new Date().toISOString(),
@@ -383,7 +383,7 @@ export const databaseService = {
 
   async updateBook(id: string, updates: Partial<Book>): Promise<Book> {
     const { data, error } = await supabase
-      .from('books')
+      .from('catalog_books')
       .update({
         ...updates,
         updated_at: new Date().toISOString()
@@ -401,7 +401,7 @@ export const databaseService = {
 
   async deleteBook(id: string): Promise<void> {
     const { error } = await supabase
-      .from('books')
+      .from('catalog_books')
       .delete()
       .eq('id', id);
     
@@ -632,7 +632,7 @@ export const databaseService = {
     try {
       // Get books count by status
       const { data: booksData, error: booksError } = await supabase
-        .from('books')
+        .from('catalog_books')
         .select('status');
       
       if (booksError) throw booksError;
@@ -681,7 +681,7 @@ export const databaseService = {
       if (newUsersMonthError) throw newUsersMonthError;
 
       const { count: newBooksThisMonth, error: newBooksMonthError } = await supabase
-        .from('books')
+        .from('catalog_books')
         .select('*', { count: 'exact', head: true })
         .gte('created_at', thisMonthStart);
       
@@ -725,7 +725,7 @@ export const databaseService = {
   async getCategoryStats(): Promise<CategoryStats[]> {
     try {
       const { data, error } = await supabase
-        .from('books')
+        .from('catalog_books')
         .select('category');
       
       if (error) throw error;
@@ -940,7 +940,7 @@ export const databaseService = {
       .from(TABLES.STUDENT_FAVORITES)
       .select(`
         *,
-        book:books(*)
+        book:catalog_books(*)
       `)
       .eq('user_id', userId)
       .order('date_added', { ascending: false });
@@ -954,28 +954,75 @@ export const databaseService = {
   },
 
   async addStudentFavorite(userId: string, bookId: string, data: Partial<StudentFavorite>): Promise<StudentFavorite | null> {
-    const { data: result, error } = await supabase
-      .from(TABLES.STUDENT_FAVORITES)
-      .insert({
-        user_id: userId,
-        book_id: bookId,
-        personal_rating: data.personal_rating || 5,
-        notes: data.notes,
-        tags: data.tags || [],
-        read_count: 0
-      })
-      .select(`
-        *,
-        book:books(*)
-      `)
-      .single();
-    
-    if (error) {
-      console.error('Error adding student favorite:', error);
+    try {
+      // 1) Cek apakah buku ada di catalog_books
+      const { data: book, error: bookErr } = await supabase
+        .from('catalog_books')
+        .select('id')
+        .eq('id', bookId)
+        .maybeSingle();
+
+      if (bookErr) {
+        console.error('Error checking book existence:', bookErr);
+        return null;
+      }
+      if (!book) {
+        console.error('Book not found:', bookId);
+        return null;
+      }
+
+      // 2) Cek apakah favorite sudah ada untuk user ini
+      const { data: existing, error: existErr } = await supabase
+        .from(TABLES.STUDENT_FAVORITES)
+        .select('id')
+        .eq('user_id', userId)
+        .eq('book_id', bookId)
+        .maybeSingle();
+
+      if (existErr) {
+        console.error('Error checking existing favorite:', existErr);
+        // Lanjutkan mencoba insert, tapi laporkan error
+      }
+      if (existing) {
+        console.log('Favorite already exists, returning existing record');
+        return existing as StudentFavorite;
+      }
+
+      // 3) Insert favorite
+      const { data: result, error } = await supabase
+        .from(TABLES.STUDENT_FAVORITES)
+        .insert({
+          user_id: userId,
+          book_id: bookId,
+          personal_rating: data.personal_rating || 5,
+          notes: data.notes,
+          tags: data.tags || [],
+          read_count: 0
+        })
+        .select(`
+          *,
+          book:catalog_books(*)
+        `)
+        .single();
+      
+      if (error) {
+        console.error('Error adding student favorite:', error);
+        // Postgres FK violation code 23503
+        if (error.code === '23503') {
+          console.error('Foreign key constraint violation - book not found in catalog_books');
+        } else if (error.code === '23505' || error.status === 409) {
+          console.error('Duplicate entry - favorite already exists');
+        } else {
+          console.error('Unknown error adding favorite:', error);
+        }
+        return null;
+      }
+      
+      return result;
+    } catch (e) {
+      console.error('Unhandled error in addStudentFavorite:', e);
       return null;
     }
-    
-    return result;
   },
 
   async removeStudentFavorite(userId: string, bookId: string): Promise<boolean> {
@@ -993,12 +1040,54 @@ export const databaseService = {
     return true;
   },
 
+  async toggleStudentFavorite(userId: string, bookId: string, data: Partial<StudentFavorite>): Promise<{ data: any; removed: boolean } | null> {
+    try {
+      // Cek apakah favorite sudah ada
+      const { data: existing, error: existErr } = await supabase
+        .from(TABLES.STUDENT_FAVORITES)
+        .select('id')
+        .eq('user_id', userId)
+        .eq('book_id', bookId)
+        .maybeSingle();
+
+      if (existErr) {
+        console.error('Error checking existing favorite for toggle:', existErr);
+      }
+
+      if (existing) {
+        // Hapus favorite
+        const { error } = await supabase
+          .from(TABLES.STUDENT_FAVORITES)
+          .delete()
+          .eq('id', existing.id);
+
+        if (error) {
+          console.error('Error deleting favorite:', error);
+          return null;
+        }
+        console.log('Favorite removed successfully');
+        return { data: { removed: true }, removed: true };
+      } else {
+        // Tambah favorite (gunakan addStudentFavorite untuk konsistensi)
+        const result = await this.addStudentFavorite(userId, bookId, data);
+        if (result) {
+          console.log('Favorite added successfully');
+          return { data: result, removed: false };
+        }
+        return null;
+      }
+    } catch (e) {
+      console.error('Unhandled error in toggleStudentFavorite:', e);
+      return null;
+    }
+  },
+
   async getStudentReadingHistory(userId: string): Promise<ReadingHistory[]> {
     const { data, error } = await supabase
       .from('reading_history')
       .select(`
         *,
-        book:books(*)
+        book:catalog_books(*)
       `)
       .eq('user_id', userId)
       .order('borrow_date', { ascending: false });
@@ -1026,7 +1115,7 @@ export const databaseService = {
       })
       .select(`
         *,
-        book:books(*)
+        book:catalog_books(*)
       `)
       .single();
     
@@ -1043,7 +1132,7 @@ export const databaseService = {
       .from('reservations')
       .select(`
         *,
-        book:books(*)
+        book:catalog_books(*)
       `)
       .eq('user_id', userId)
       .order('reservation_date', { ascending: false });
@@ -1073,7 +1162,7 @@ export const databaseService = {
       })
       .select(`
         *,
-        book:books(*)
+        book:catalog_books(*)
       `)
       .single();
     
@@ -1148,7 +1237,7 @@ export const databaseService = {
       .from('curriculum_books')
       .select(`
         *,
-        book:books(*)
+        book:catalog_books(*)
       `)
       .eq('teacher_id', teacherId)
       .order('created_at', { ascending: false });
@@ -1182,7 +1271,7 @@ export const databaseService = {
       })
       .select(`
         *,
-        book:books(*)
+        book:catalog_books(*)
       `)
       .single();
     
@@ -1267,7 +1356,7 @@ export const databaseService = {
       .from('class_assignments')
       .select(`
         *,
-        book:books(*)
+        book:catalog_books(*)
       `)
       .eq('teacher_id', teacherId)
       .order('created_at', { ascending: false });
@@ -1296,7 +1385,7 @@ export const databaseService = {
       })
       .select(`
         *,
-        book:books(*)
+        book:catalog_books(*)
       `)
       .single();
     
@@ -1395,7 +1484,7 @@ export const databaseService = {
       .from(TABLES.BOOKMARKS)
       .select(`
         *,
-        book:books(*)
+        book:catalog_books(*)
       `)
       .eq('user_id', userId)
       .order('date_added', { ascending: false });
@@ -1412,26 +1501,73 @@ export const databaseService = {
     notes?: string;
     tags?: string[];
   }): Promise<any | null> {
-    const { data, error } = await supabase
-      .from(TABLES.BOOKMARKS)
-      .insert({
-        user_id: userId,
-        book_id: bookId,
-        notes: bookmarkData.notes || '',
-        tags: bookmarkData.tags || []
-      })
-      .select(`
-        *,
-        book:books(*)
-      `)
-      .single();
-    
-    if (error) {
-      console.error('Error adding bookmark:', error);
+    try {
+      // 1) Cek apakah buku ada di catalog_books
+      const { data: book, error: bookErr } = await supabase
+        .from('catalog_books')
+        .select('id')
+        .eq('id', bookId)
+        .maybeSingle();
+
+      if (bookErr) {
+        console.error('Error checking book existence for bookmark:', bookErr);
+        return null;
+      }
+      if (!book) {
+        console.error('Book not found for bookmark:', bookId);
+        return null;
+      }
+
+      // 2) Cek apakah bookmark sudah ada untuk user ini
+      const { data: existing, error: existErr } = await supabase
+        .from(TABLES.BOOKMARKS)
+        .select('id')
+        .eq('user_id', userId)
+        .eq('book_id', bookId)
+        .maybeSingle();
+
+      if (existErr) {
+        console.error('Error checking existing bookmark:', existErr);
+        // Lanjutkan mencoba insert, tapi laporkan error
+      }
+      if (existing) {
+        console.log('Bookmark already exists, returning existing record');
+        return existing;
+      }
+
+      // 3) Insert bookmark
+      const { data, error } = await supabase
+        .from(TABLES.BOOKMARKS)
+        .insert({
+          user_id: userId,
+          book_id: bookId,
+          notes: bookmarkData.notes || '',
+          tags: bookmarkData.tags || []
+        })
+        .select(`
+          *,
+          book:catalog_books(*)
+        `)
+        .single();
+      
+      if (error) {
+        console.error('Error adding bookmark:', error);
+        // Postgres FK violation code 23503
+        if (error.code === '23503') {
+          console.error('Foreign key constraint violation - book not found in catalog_books');
+        } else if (error.code === '23505' || error.status === 409) {
+          console.error('Duplicate entry - bookmark already exists');
+        } else {
+          console.error('Unknown error adding bookmark:', error);
+        }
+        return null;
+      }
+      
+      return data;
+    } catch (e) {
+      console.error('Unhandled error in addBookmark:', e);
       return null;
     }
-    
-    return data;
   },
 
   async removeBookmark(userId: string, bookId: string): Promise<boolean> {
@@ -1449,6 +1585,51 @@ export const databaseService = {
     return true;
   },
 
+  async toggleBookmark(userId: string, bookId: string, bookmarkData: {
+    notes?: string;
+    tags?: string[];
+  }): Promise<{ data: any; removed: boolean } | null> {
+    try {
+      // Cek apakah bookmark sudah ada
+      const { data: existing, error: existErr } = await supabase
+        .from(TABLES.BOOKMARKS)
+        .select('id')
+        .eq('user_id', userId)
+        .eq('book_id', bookId)
+        .maybeSingle();
+
+      if (existErr) {
+        console.error('Error checking existing bookmark for toggle:', existErr);
+      }
+
+      if (existing) {
+        // Hapus bookmark
+        const { error } = await supabase
+          .from(TABLES.BOOKMARKS)
+          .delete()
+          .eq('id', existing.id);
+
+        if (error) {
+          console.error('Error deleting bookmark:', error);
+          return null;
+        }
+        console.log('Bookmark removed successfully');
+        return { data: { removed: true }, removed: true };
+      } else {
+        // Tambah bookmark (gunakan addBookmark untuk konsistensi)
+        const result = await this.addBookmark(userId, bookId, bookmarkData);
+        if (result) {
+          console.log('Bookmark added successfully');
+          return { data: result, removed: false };
+        }
+        return null;
+      }
+    } catch (e) {
+      console.error('Unhandled error in toggleBookmark:', e);
+      return null;
+    }
+  },
+
   async updateBookmark(userId: string, bookmarkId: number, bookmarkData: {
     notes?: string;
     tags?: string[];
@@ -1460,7 +1641,7 @@ export const databaseService = {
       .eq('user_id', userId)
       .select(`
         *,
-        book:books(*)
+        book:catalog_books(*)
       `)
       .single();
     
@@ -1481,7 +1662,7 @@ export const databaseService = {
       .from('shared_books')
       .select(`
         *,
-        book:books(*)
+        book:catalog_books(*)
       `)
       .eq('user_id', userId)
       .order('date_shared', { ascending: false });
@@ -1511,7 +1692,7 @@ export const databaseService = {
       })
       .select(`
         *,
-        book:books(*)
+        book:catalog_books(*)
       `)
       .single();
     

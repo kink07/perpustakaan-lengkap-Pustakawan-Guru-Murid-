@@ -224,40 +224,29 @@ function DigitalLibrary({ currentUser, onNavigateToDashboard, onNavigateToAuth, 
       return;
     }
 
-    const isCurrentlyFavorite = favoriteStatus[book.id] || false;
-    const newStatus = !isCurrentlyFavorite;
-
     try {
-      console.log('Toggling favorite for user:', currentUser.id, 'book:', book.id, 'new status:', newStatus);
+      console.log('Toggling favorite for user:', currentUser.id, 'book:', book.id);
       
-      if (newStatus) {
-        // Add to favorites
-        const result = await databaseService.addStudentFavorite(currentUser.id, book.id, {
-          personal_rating: 5,
-          notes: '',
-          tags: []
-        });
+      // Gunakan fungsi toggle yang baru
+      const result = await databaseService.toggleStudentFavorite(currentUser.id, book.id, {
+        personal_rating: 5,
+        notes: '',
+        tags: []
+      });
 
-        if (result) {
-          setFavoriteStatus(prev => ({ ...prev, [book.id]: true }));
-          showLocalNotification('success', 'Buku berhasil ditambahkan ke favorit!');
-          console.log('Favorite added successfully:', result);
-        } else {
-          showLocalNotification('error', 'Gagal menambahkan ke favorit');
-          console.error('Failed to add favorite - no result returned');
-        }
-      } else {
-        // Remove from favorites
-        const result = await databaseService.removeStudentFavorite(currentUser.id, book.id);
-        
-        if (result) {
+      if (result) {
+        if (result.removed) {
           setFavoriteStatus(prev => ({ ...prev, [book.id]: false }));
           showLocalNotification('success', 'Buku berhasil dihapus dari favorit!');
           console.log('Favorite removed successfully');
         } else {
-          showLocalNotification('error', 'Gagal menghapus dari favorit');
-          console.error('Failed to remove favorite');
+          setFavoriteStatus(prev => ({ ...prev, [book.id]: true }));
+          showLocalNotification('success', 'Buku berhasil ditambahkan ke favorit!');
+          console.log('Favorite added successfully');
         }
+      } else {
+        showLocalNotification('error', 'Gagal mengubah status favorit');
+        console.error('Failed to toggle favorite - no result returned');
       }
     } catch (error) {
       console.error('Error toggling favorite:', error);
@@ -277,39 +266,28 @@ function DigitalLibrary({ currentUser, onNavigateToDashboard, onNavigateToAuth, 
       return;
     }
 
-    const isCurrentlyBookmarked = bookmarkStatus[book.id] || false;
-    const newStatus = !isCurrentlyBookmarked;
-
     try {
-      console.log('Toggling bookmark for user:', currentUser.id, 'book:', book.id, 'new status:', newStatus);
+      console.log('Toggling bookmark for user:', currentUser.id, 'book:', book.id);
       
-      if (newStatus) {
-        // Add to bookmarks
-        const result = await databaseService.addBookmark(currentUser.id, book.id, {
-          notes: '',
-          tags: []
-        });
+      // Gunakan fungsi toggle yang baru
+      const result = await databaseService.toggleBookmark(currentUser.id, book.id, {
+        notes: '',
+        tags: []
+      });
 
-        if (result) {
-          setBookmarkStatus(prev => ({ ...prev, [book.id]: true }));
-          showLocalNotification('success', 'Buku berhasil ditambahkan ke bookmark!');
-          console.log('Bookmark added successfully:', result);
-        } else {
-          showLocalNotification('error', 'Gagal menambahkan ke bookmark');
-          console.error('Failed to add bookmark - no result returned');
-        }
-      } else {
-        // Remove from bookmarks
-        const result = await databaseService.removeBookmark(currentUser.id, book.id);
-        
-        if (result) {
+      if (result) {
+        if (result.removed) {
           setBookmarkStatus(prev => ({ ...prev, [book.id]: false }));
           showLocalNotification('success', 'Buku berhasil dihapus dari bookmark!');
           console.log('Bookmark removed successfully');
         } else {
-          showLocalNotification('error', 'Gagal menghapus dari bookmark');
-          console.error('Failed to remove bookmark');
+          setBookmarkStatus(prev => ({ ...prev, [book.id]: true }));
+          showLocalNotification('success', 'Buku berhasil ditambahkan ke bookmark!');
+          console.log('Bookmark added successfully');
         }
+      } else {
+        showLocalNotification('error', 'Gagal mengubah status bookmark');
+        console.error('Failed to toggle bookmark - no result returned');
       }
     } catch (error) {
       console.error('Error toggling bookmark:', error);
