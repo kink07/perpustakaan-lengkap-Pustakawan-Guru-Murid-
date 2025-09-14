@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { X, User, Edit3, Save, Phone, Building, Briefcase } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { X, User, Edit3, Save, Phone, Building, Briefcase, Camera } from 'lucide-react';
+import { databaseService } from '../services/database';
 
 interface EditProfileModalProps {
   isOpen: boolean;
@@ -19,6 +20,15 @@ function EditProfileModal({ isOpen, onClose, user, onSave }: EditProfileModalPro
   });
 
   const [isEditing, setIsEditing] = useState(false);
+  const [profileImage, setProfileImage] = useState<string | null>(user?.profile_image || null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Update profileImage when user prop changes
+  useEffect(() => {
+    setProfileImage(user?.profile_image || null);
+  }, [user?.profile_image]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -28,14 +38,67 @@ function EditProfileModal({ isOpen, onClose, user, onSave }: EditProfileModalPro
     }));
   };
 
-  const handleSave = () => {
-    onSave(formData);
-    setIsEditing(false);
-    onClose();
+  const handleSave = async () => {
+    try {
+      setIsUploading(true);
+      let imageUrl = profileImage;
+      
+      // Upload file to Supabase Storage if a new file is selected
+      if (selectedFile) {
+        imageUrl = await databaseService.uploadProfileImage(user.id, selectedFile);
+      }
+      
+      const updatedData = {
+        ...formData,
+        profile_image: imageUrl
+      };
+      
+      onSave(updatedData);
+      setIsEditing(false);
+      onClose();
+    } catch (error) {
+      console.error('Error saving profile:', error);
+      alert('Gagal menyimpan profil. Silakan coba lagi.');
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   const handleEdit = () => {
     setIsEditing(true);
+  };
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      // Validate file type
+      if (!file.type.startsWith('image/')) {
+        alert('Harap pilih file gambar yang valid.');
+        return;
+      }
+      
+      // Validate file size (max 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        alert('Ukuran file terlalu besar. Maksimal 5MB.');
+        return;
+      }
+      
+      // Store the file for upload
+      setSelectedFile(file);
+      
+      // Create preview URL
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        setProfileImage(event.target?.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleImageClick = () => {
+    if (isEditing && fileInputRef.current) {
+      fileInputRef.current.click();
+    }
   };
 
   if (!isOpen) return null;
@@ -64,14 +127,37 @@ function EditProfileModal({ isOpen, onClose, user, onSave }: EditProfileModalPro
           {/* Profile Picture */}
           <div className="flex justify-center mb-6">
             <div className="relative">
-              <div className="w-24 h-24 bg-gradient-to-r from-blue-600 to-purple-600 rounded-full flex items-center justify-center border-4 border-yellow-400">
-                <div className="text-white text-2xl font-bold">
-                  {user?.name?.charAt(0) || 'U'}
-                </div>
+              <div 
+                className="w-24 h-24 bg-gradient-to-r from-blue-600 to-purple-600 rounded-full flex items-center justify-center border-4 border-yellow-400 cursor-pointer hover:opacity-80 transition-opacity"
+                onClick={handleImageClick}
+                title={isEditing ? "Klik untuk upload foto" : "Klik untuk edit profil"}
+              >
+                {profileImage ? (
+                  <img 
+                    src={profileImage} 
+                    alt="Profile" 
+                    className="w-full h-full rounded-full object-cover"
+                  />
+                ) : (
+                  <div className="text-white text-2xl font-bold">
+                    {user?.name?.charAt(0) || 'U'}
+                  </div>
+                )}
               </div>
-              <div className="absolute -bottom-2 -right-2 w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center border-2 border-white">
-                <Edit3 className="w-4 h-4 text-white" />
-              </div>
+              <button 
+                className="absolute -bottom-2 -right-2 w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center border-2 border-white hover:bg-blue-700 transition-colors cursor-pointer"
+                onClick={handleImageClick}
+                title="Upload Foto Profil"
+              >
+                <Camera className="w-4 h-4 text-white" />
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleImageUpload}
+                className="hidden"
+              />
             </div>
           </div>
 
@@ -176,10 +262,11 @@ function EditProfileModal({ isOpen, onClose, user, onSave }: EditProfileModalPro
             ) : (
               <button
                 onClick={handleSave}
-                className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                disabled={isUploading}
+                className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Save className="w-4 h-4" />
-                <span>Simpan</span>
+                <span>{isUploading ? 'Menyimpan...' : 'Simpan'}</span>
               </button>
             )}
           </div>

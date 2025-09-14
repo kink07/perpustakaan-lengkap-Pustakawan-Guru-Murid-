@@ -1,12 +1,13 @@
 // Database service functions
 // Supabase integration
 
-import { supabase } from '../config/supabase';
+import { supabase, TABLES } from '../config/supabase';
 import { 
   User, Book, BorrowRecord, Reservation, Activity, Notification, LibraryStats, CategoryStats, CirculationTrend,
   StudentFavorite, ReadingHistory, DigitalContent, DigitalContentProgress, CurriculumBook, TeachingMaterial,
   Class, ClassAssignment, AssignmentSubmission, NotificationSettings, ExtendedReservation,
-  CatalogBook, BookLabel, ImportExportLog, ExcelBookData
+  CatalogBook, BookLabel, ImportExportLog, ExcelBookData,
+  CirculationRecord, ActiveBorrowing, Visitor, InventoryItem, Report, LibrarySetting
 } from '../types/database';
 
 // Database service functions using Supabase
@@ -77,6 +78,8 @@ export const databaseService = {
   },
 
   async updateUser(id: string, updates: Partial<User>): Promise<User> {
+    console.log('Database updateUser called with:', { id, updates });
+    
     const { data, error } = await supabase
       .from('users')
       .update({
@@ -88,10 +91,182 @@ export const databaseService = {
       .single();
     
     if (error) {
+      console.error('Database updateUser error:', error);
       throw new Error(error.message);
     }
     
+    console.log('Database updateUser success:', data);
     return data as User;
+  },
+
+  async uploadProfileImage(userId: string, file: File): Promise<string> {
+    console.log('Uploading profile image for user:', userId);
+    
+    try {
+      // Generate unique filename
+      const fileExt = file.name.split('.').pop();
+      const fileName = `profile.${fileExt}`;
+      const filePath = `${userId}/${fileName}`;
+      
+      // Upload file to Supabase Storage
+      const { data, error } = await supabase.storage
+        .from('profile-images')
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: true // Replace existing file
+        });
+      
+      if (error) {
+        console.error('Storage upload error:', error);
+        throw new Error(`Upload failed: ${error.message}`);
+      }
+      
+      // Get public URL
+      const { data: urlData } = supabase.storage
+        .from('profile-images')
+        .getPublicUrl(filePath);
+      
+      console.log('Profile image uploaded successfully:', urlData.publicUrl);
+      return urlData.publicUrl;
+    } catch (error) {
+      console.error('Upload profile image error:', error);
+      // Fallback: return data URL if upload fails
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          resolve(event.target?.result as string);
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+  },
+
+  async uploadBookCover(bookId: string, file: File): Promise<string> {
+    console.log('Uploading book cover for book:', bookId);
+    
+    try {
+      // Generate unique filename
+      const fileExt = file.name.split('.').pop();
+      const fileName = `cover.${fileExt}`;
+      const filePath = `${bookId}/${fileName}`;
+      
+      // Upload file to Supabase Storage
+      const { data, error } = await supabase.storage
+        .from('book-covers')
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: true // Replace existing file
+        });
+      
+      if (error) {
+        console.error('Storage upload error:', error);
+        throw new Error(`Upload failed: ${error.message}`);
+      }
+      
+      // Get public URL
+      const { data: urlData } = supabase.storage
+        .from('book-covers')
+        .getPublicUrl(filePath);
+      
+      console.log('Book cover uploaded successfully:', urlData.publicUrl);
+      return urlData.publicUrl;
+    } catch (error) {
+      console.error('Upload book cover error:', error);
+      // Fallback: return data URL if upload fails
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          resolve(event.target?.result as string);
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+  },
+
+  async uploadBookDigitalFile(bookId: string, file: File): Promise<string> {
+    console.log('Uploading digital file for book:', bookId);
+    
+    try {
+      // Generate unique filename with timestamp
+      const timestamp = Date.now();
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${timestamp}_${file.name}`;
+      const filePath = `${bookId}/${fileName}`;
+      
+      // Upload file to Supabase Storage
+      const { data, error } = await supabase.storage
+        .from('book-digital-files')
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: false // Don't replace, keep multiple files
+        });
+      
+      if (error) {
+        console.error('Storage upload error:', error);
+        throw new Error(`Upload failed: ${error.message}`);
+      }
+      
+      // Get public URL
+      const { data: urlData } = supabase.storage
+        .from('book-digital-files')
+        .getPublicUrl(filePath);
+      
+      console.log('Digital file uploaded successfully:', urlData.publicUrl);
+      return urlData.publicUrl;
+    } catch (error) {
+      console.error('Upload digital file error:', error);
+      throw error;
+    }
+  },
+
+  async deleteBookCover(bookId: string): Promise<boolean> {
+    try {
+      // List files in the book's folder
+      const { data: files, error: listError } = await supabase.storage
+        .from('book-covers')
+        .list(bookId);
+      
+      if (listError) {
+        console.error('Error listing cover files:', listError);
+        return false;
+      }
+      
+      // Delete all cover files for this book
+      if (files && files.length > 0) {
+        const filePaths = files.map(file => `${bookId}/${file.name}`);
+        const { error: deleteError } = await supabase.storage
+          .from('book-covers')
+          .remove(filePaths);
+        
+        if (deleteError) {
+          console.error('Error deleting cover files:', deleteError);
+          return false;
+        }
+      }
+      
+      return true;
+    } catch (error) {
+      console.error('Delete book cover error:', error);
+      return false;
+    }
+  },
+
+  async deleteBookDigitalFile(filePath: string): Promise<boolean> {
+    try {
+      const { error } = await supabase.storage
+        .from('book-digital-files')
+        .remove([filePath]);
+      
+      if (error) {
+        console.error('Error deleting digital file:', error);
+        return false;
+      }
+      
+      return true;
+    } catch (error) {
+      console.error('Delete digital file error:', error);
+      return false;
+    }
   },
 
   async deleteUser(id: string): Promise<void> {
@@ -658,16 +833,8 @@ export const databaseService = {
         
         if (userError) {
           console.error('Error fetching user profile:', userError);
-          // Fallback to default profile if user not found in database
-          const userProfile: User = {
-            id: data.user.id,
-            email: data.user.email || email,
-            role: 'librarian', // Default fallback
-            name: data.user.user_metadata?.name || email.split('@')[0],
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          };
-          return { user: userProfile, error: null };
+          // Return error if user not found in database
+          return { user: null, error: 'Profil pengguna tidak ditemukan. Silakan hubungi administrator.' };
         }
         
         console.log('User profile from database:', userData);
@@ -756,16 +923,8 @@ export const databaseService = {
       
       if (userError) {
         console.error('Error fetching user profile:', userError);
-        // Fallback to default profile if user not found in database
-        const userProfile: User = {
-          id: authUser.id,
-          email: authUser.email || '',
-          role: 'librarian', // Default fallback
-          name: authUser.user_metadata?.name || authUser.email?.split('@')[0] || 'User',
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        };
-        return userProfile;
+        // Return null if user not found in database
+        return null;
       }
 
       return userData as User;
@@ -778,7 +937,7 @@ export const databaseService = {
   // Student-specific functions
   async getStudentFavorites(userId: string): Promise<StudentFavorite[]> {
     const { data, error } = await supabase
-      .from('student_favorites')
+      .from(TABLES.STUDENT_FAVORITES)
       .select(`
         *,
         book:books(*)
@@ -796,7 +955,7 @@ export const databaseService = {
 
   async addStudentFavorite(userId: string, bookId: string, data: Partial<StudentFavorite>): Promise<StudentFavorite | null> {
     const { data: result, error } = await supabase
-      .from('student_favorites')
+      .from(TABLES.STUDENT_FAVORITES)
       .insert({
         user_id: userId,
         book_id: bookId,
@@ -821,7 +980,7 @@ export const databaseService = {
 
   async removeStudentFavorite(userId: string, bookId: string): Promise<boolean> {
     const { error } = await supabase
-      .from('student_favorites')
+      .from(TABLES.STUDENT_FAVORITES)
       .delete()
       .eq('user_id', userId)
       .eq('book_id', bookId);
@@ -1233,7 +1392,7 @@ export const databaseService = {
 
   async getUserBookmarks(userId: string): Promise<any[]> {
     const { data, error } = await supabase
-      .from('bookmarks')
+      .from(TABLES.BOOKMARKS)
       .select(`
         *,
         book:books(*)
@@ -1254,7 +1413,7 @@ export const databaseService = {
     tags?: string[];
   }): Promise<any | null> {
     const { data, error } = await supabase
-      .from('bookmarks')
+      .from(TABLES.BOOKMARKS)
       .insert({
         user_id: userId,
         book_id: bookId,
@@ -1277,7 +1436,7 @@ export const databaseService = {
 
   async removeBookmark(userId: string, bookId: string): Promise<boolean> {
     const { error } = await supabase
-      .from('bookmarks')
+      .from(TABLES.BOOKMARKS)
       .delete()
       .eq('user_id', userId)
       .eq('book_id', bookId);
@@ -1295,7 +1454,7 @@ export const databaseService = {
     tags?: string[];
   }): Promise<any | null> {
     const { data, error } = await supabase
-      .from('bookmarks')
+      .from(TABLES.BOOKMARKS)
       .update(bookmarkData)
       .eq('id', bookmarkId)
       .eq('user_id', userId)
@@ -1816,8 +1975,8 @@ export const databaseService = {
       const { data: todayVisitors, error: todayError } = await supabase
         .from('visitors')
         .select('*')
-        .gte('check_in_date', today)
-        .lt('check_in_date', new Date(new Date(today).getTime() + 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
+        .gte('visit_date', today)
+        .lt('visit_date', new Date(new Date(today).getTime() + 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
 
       if (todayError) {
         console.error('Error fetching today visitors:', todayError);
@@ -1829,7 +1988,7 @@ export const databaseService = {
       const { data: weekVisitors, error: weekError } = await supabase
         .from('visitors')
         .select('*')
-        .gte('check_in_date', weekAgo.toISOString().split('T')[0]);
+        .gte('visit_date', weekAgo.toISOString().split('T')[0]);
 
       if (weekError) {
         console.error('Error fetching week visitors:', weekError);
@@ -1841,7 +2000,7 @@ export const databaseService = {
       const { data: monthVisitors, error: monthError } = await supabase
         .from('visitors')
         .select('*')
-        .gte('check_in_date', monthAgo.toISOString().split('T')[0]);
+        .gte('visit_date', monthAgo.toISOString().split('T')[0]);
 
       if (monthError) {
         console.error('Error fetching month visitors:', monthError);
@@ -1861,7 +2020,7 @@ export const databaseService = {
         weekVisitors: weekVisitors?.length || 0,
         monthVisitors: monthVisitors?.length || 0,
         totalVisitors: totalVisitors?.length || 0,
-        activeVisitors: todayVisitors?.filter(v => !v.check_out_date)?.length || 0
+        activeVisitors: todayVisitors?.filter(v => !v.check_out_time)?.length || 0
       };
     } catch (error) {
       console.error('Error getting visitor stats:', error);
@@ -1875,63 +2034,698 @@ export const databaseService = {
     }
   },
 
-  async getVisitors(): Promise<any[]> {
-    try {
-      const { data, error } = await supabase
-        .from('visitors')
-        .select('*')
-        .order('check_in_date', { ascending: false });
 
-      if (error) {
-        console.error('Error fetching visitors:', error);
-        return [];
-      }
+  // =====================================================
+  // CIRCULATION MANAGEMENT FUNCTIONS
+  // =====================================================
 
-      return data || [];
-    } catch (error) {
-      console.error('Error getting visitors:', error);
+  async getCirculationRecords(): Promise<CirculationRecord[]> {
+    const { data, error } = await supabase
+      .from('circulation_records')
+      .select(`
+        *,
+        book:catalog_books(*),
+        user:users(*),
+        processed_by_user:users!processed_by(*)
+      `)
+      .order('created_at', { ascending: false });
+    
+    if (error) {
+      console.error('Error fetching circulation records:', error);
       return [];
     }
+    
+    return data as CirculationRecord[];
   },
 
-  async createVisitor(visitorData: any): Promise<any> {
-    try {
-      const { data, error } = await supabase
-        .from('visitors')
-        .insert([visitorData])
-        .select()
-        .single();
+  async getCirculationRecordById(id: string): Promise<CirculationRecord | null> {
+    const { data, error } = await supabase
+      .from('circulation_records')
+      .select(`
+        *,
+        book:catalog_books(*),
+        user:users(*),
+        processed_by_user:users!processed_by(*)
+      `)
+      .eq('id', id)
+      .single();
+    
+    if (error) {
+      console.error('Error fetching circulation record:', error);
+      return null;
+    }
+    
+    return data as CirculationRecord;
+  },
 
-      if (error) {
-        console.error('Error creating visitor:', error);
-        return null;
-      }
+  async createCirculationRecord(recordData: Partial<CirculationRecord>): Promise<CirculationRecord | null> {
+    const { data, error } = await supabase
+      .from('circulation_records')
+      .insert(recordData)
+      .select(`
+        *,
+        book:catalog_books(*),
+        user:users(*),
+        processed_by_user:users!processed_by(*)
+      `)
+      .single();
+    
+    if (error) {
+      console.error('Error creating circulation record:', error);
+      return null;
+    }
+    
+    return data as CirculationRecord;
+  },
 
-      return data;
-    } catch (error) {
+  async updateCirculationRecord(id: string, recordData: Partial<CirculationRecord>): Promise<CirculationRecord | null> {
+    const { data, error } = await supabase
+      .from('circulation_records')
+      .update(recordData)
+      .eq('id', id)
+      .select(`
+        *,
+        book:catalog_books(*),
+        user:users(*),
+        processed_by_user:users!processed_by(*)
+      `)
+      .single();
+    
+    if (error) {
+      console.error('Error updating circulation record:', error);
+      return null;
+    }
+    
+    return data as CirculationRecord;
+  },
+
+  async deleteCirculationRecord(id: string): Promise<boolean> {
+    const { error } = await supabase
+      .from('circulation_records')
+      .delete()
+      .eq('id', id);
+    
+    if (error) {
+      console.error('Error deleting circulation record:', error);
+      return false;
+    }
+    
+    return true;
+  },
+
+  // =====================================================
+  // ACTIVE BORROWINGS FUNCTIONS
+  // =====================================================
+
+  async getActiveBorrowings(): Promise<ActiveBorrowing[]> {
+    const { data, error } = await supabase
+      .from('active_borrowings')
+      .select(`
+        *,
+        book:catalog_books(*),
+        user:users(*)
+      `)
+      .order('borrow_date', { ascending: false });
+    
+    if (error) {
+      console.error('Error fetching active borrowings:', error);
+      return [];
+    }
+    
+    return data as ActiveBorrowing[];
+  },
+
+  async getActiveBorrowingsByUser(userId: string): Promise<ActiveBorrowing[]> {
+    const { data, error } = await supabase
+      .from('active_borrowings')
+      .select(`
+        *,
+        book:catalog_books(*),
+        user:users(*)
+      `)
+      .eq('user_id', userId)
+      .order('borrow_date', { ascending: false });
+    
+    if (error) {
+      console.error('Error fetching user active borrowings:', error);
+      return [];
+    }
+    
+    return data as ActiveBorrowing[];
+  },
+
+  async getOverdueBorrowings(): Promise<ActiveBorrowing[]> {
+    const today = new Date().toISOString().split('T')[0];
+    const { data, error } = await supabase
+      .from('active_borrowings')
+      .select(`
+        *,
+        book:catalog_books(*),
+        user:users(*)
+      `)
+      .lt('due_date', today)
+      .eq('status', 'active')
+      .order('due_date', { ascending: true });
+    
+    if (error) {
+      console.error('Error fetching overdue borrowings:', error);
+      return [];
+    }
+    
+    return data as ActiveBorrowing[];
+  },
+
+  async createActiveBorrowing(borrowingData: Partial<ActiveBorrowing>): Promise<ActiveBorrowing | null> {
+    const { data, error } = await supabase
+      .from('active_borrowings')
+      .insert(borrowingData)
+      .select(`
+        *,
+        book:catalog_books(*),
+        user:users(*)
+      `)
+      .single();
+    
+    if (error) {
+      console.error('Error creating active borrowing:', error);
+      return null;
+    }
+    
+    return data as ActiveBorrowing;
+  },
+
+  async updateActiveBorrowing(id: string, borrowingData: Partial<ActiveBorrowing>): Promise<ActiveBorrowing | null> {
+    const { data, error } = await supabase
+      .from('active_borrowings')
+      .update(borrowingData)
+      .eq('id', id)
+      .select(`
+        *,
+        book:catalog_books(*),
+        user:users(*)
+      `)
+      .single();
+    
+    if (error) {
+      console.error('Error updating active borrowing:', error);
+      return null;
+    }
+    
+    return data as ActiveBorrowing;
+  },
+
+  async deleteActiveBorrowing(id: string): Promise<boolean> {
+    const { error } = await supabase
+      .from('active_borrowings')
+      .delete()
+      .eq('id', id);
+    
+    if (error) {
+      console.error('Error deleting active borrowing:', error);
+      return false;
+    }
+    
+    return true;
+  },
+
+  // =====================================================
+  // VISITOR MANAGEMENT FUNCTIONS
+  // =====================================================
+
+  async getVisitors(): Promise<Visitor[]> {
+    const { data, error } = await supabase
+      .from('visitors')
+      .select(`
+        *,
+        registered_by_user:users!registered_by(*)
+      `)
+      .order('visit_date', { ascending: false });
+    
+    if (error) {
+      console.error('Error fetching visitors:', error);
+      return [];
+    }
+    
+    return data as Visitor[];
+  },
+
+  async getVisitorsByDate(date: string): Promise<Visitor[]> {
+    const { data, error } = await supabase
+      .from('visitors')
+      .select(`
+        *,
+        registered_by_user:users!registered_by(*)
+      `)
+      .eq('visit_date', date)
+      .order('check_in_time', { ascending: true });
+    
+    if (error) {
+      console.error('Error fetching visitors by date:', error);
+      return [];
+    }
+    
+    return data as Visitor[];
+  },
+
+  async getVisitorById(id: string): Promise<Visitor | null> {
+    const { data, error } = await supabase
+      .from('visitors')
+      .select(`
+        *,
+        registered_by_user:users!registered_by(*)
+      `)
+      .eq('id', id)
+      .single();
+    
+    if (error) {
+      console.error('Error fetching visitor:', error);
+      return null;
+    }
+    
+    return data as Visitor;
+  },
+
+  async createVisitor(visitorData: Partial<Visitor>): Promise<Visitor | null> {
+    const { data, error } = await supabase
+      .from('visitors')
+      .insert(visitorData)
+      .select(`
+        *,
+        registered_by_user:users!registered_by(*)
+      `)
+      .single();
+    
+    if (error) {
       console.error('Error creating visitor:', error);
       return null;
     }
+    
+    return data as Visitor;
   },
 
-  async updateVisitor(id: string, updates: any): Promise<any> {
-    try {
-      const { data, error } = await supabase
-        .from('visitors')
-        .update(updates)
-        .eq('id', id)
-        .select()
-        .single();
-
-      if (error) {
-        console.error('Error updating visitor:', error);
-        return null;
-      }
-
-      return data;
-    } catch (error) {
+  async updateVisitor(id: string, visitorData: Partial<Visitor>): Promise<Visitor | null> {
+    const { data, error } = await supabase
+      .from('visitors')
+      .update(visitorData)
+      .eq('id', id)
+      .select(`
+        *,
+        registered_by_user:users!registered_by(*)
+      `)
+      .single();
+    
+    if (error) {
       console.error('Error updating visitor:', error);
       return null;
     }
+    
+    return data as Visitor;
+  },
+
+  async deleteVisitor(id: string): Promise<boolean> {
+    const { error } = await supabase
+      .from('visitors')
+      .delete()
+      .eq('id', id);
+    
+    if (error) {
+      console.error('Error deleting visitor:', error);
+      return false;
+    }
+    
+    return true;
+  },
+
+  // =====================================================
+  // INVENTORY MANAGEMENT FUNCTIONS
+  // =====================================================
+
+  async getInventoryItems(): Promise<InventoryItem[]> {
+    const { data, error } = await supabase
+      .from('inventory_items')
+      .select(`
+        *,
+        book:catalog_books(*),
+        created_by_user:users!created_by(*)
+      `)
+      .order('created_at', { ascending: false });
+    
+    if (error) {
+      console.error('Error fetching inventory items:', error);
+      return [];
+    }
+    
+    return data as InventoryItem[];
+  },
+
+  async getInventoryItemsByType(itemType: string): Promise<InventoryItem[]> {
+    const { data, error } = await supabase
+      .from('inventory_items')
+      .select(`
+        *,
+        book:catalog_books(*),
+        created_by_user:users!created_by(*)
+      `)
+      .eq('item_type', itemType)
+      .order('created_at', { ascending: false });
+    
+    if (error) {
+      console.error('Error fetching inventory items by type:', error);
+      return [];
+    }
+    
+    return data as InventoryItem[];
+  },
+
+  async getInventoryItemById(id: string): Promise<InventoryItem | null> {
+    const { data, error } = await supabase
+      .from('inventory_items')
+      .select(`
+        *,
+        book:catalog_books(*),
+        created_by_user:users!created_by(*)
+      `)
+      .eq('id', id)
+      .single();
+    
+    if (error) {
+      console.error('Error fetching inventory item:', error);
+      return null;
+    }
+    
+    return data as InventoryItem;
+  },
+
+  async createInventoryItem(itemData: Partial<InventoryItem>): Promise<InventoryItem | null> {
+    const { data, error } = await supabase
+      .from('inventory_items')
+      .insert(itemData)
+      .select(`
+        *,
+        book:catalog_books(*),
+        created_by_user:users!created_by(*)
+      `)
+      .single();
+    
+    if (error) {
+      console.error('Error creating inventory item:', error);
+      return null;
+    }
+    
+    return data as InventoryItem;
+  },
+
+  async updateInventoryItem(id: string, itemData: Partial<InventoryItem>): Promise<InventoryItem | null> {
+    const { data, error } = await supabase
+      .from('inventory_items')
+      .update(itemData)
+      .eq('id', id)
+      .select(`
+        *,
+        book:catalog_books(*),
+        created_by_user:users!created_by(*)
+      `)
+      .single();
+    
+    if (error) {
+      console.error('Error updating inventory item:', error);
+      return null;
+    }
+    
+    return data as InventoryItem;
+  },
+
+  async deleteInventoryItem(id: string): Promise<boolean> {
+    const { error } = await supabase
+      .from('inventory_items')
+      .delete()
+      .eq('id', id);
+    
+    if (error) {
+      console.error('Error deleting inventory item:', error);
+      return false;
+    }
+    
+    return true;
+  },
+
+  // =====================================================
+  // REPORTS FUNCTIONS
+  // =====================================================
+
+  async getReports(): Promise<Report[]> {
+    const { data, error } = await supabase
+      .from('reports')
+      .select(`
+        *,
+        user:users(*)
+      `)
+      .order('generated_at', { ascending: false });
+    
+    if (error) {
+      console.error('Error fetching reports:', error);
+      return [];
+    }
+    
+    return data as Report[];
+  },
+
+  async getReportById(id: string): Promise<Report | null> {
+    const { data, error } = await supabase
+      .from('reports')
+      .select(`
+        *,
+        user:users(*)
+      `)
+      .eq('id', id)
+      .single();
+    
+    if (error) {
+      console.error('Error fetching report:', error);
+      return null;
+    }
+    
+    return data as Report;
+  },
+
+  async createReport(reportData: Partial<Report>): Promise<Report | null> {
+    const { data, error } = await supabase
+      .from('reports')
+      .insert(reportData)
+      .select(`
+        *,
+        user:users(*)
+      `)
+      .single();
+    
+    if (error) {
+      console.error('Error creating report:', error);
+      return null;
+    }
+    
+    return data as Report;
+  },
+
+  async updateReport(id: string, reportData: Partial<Report>): Promise<Report | null> {
+    const { data, error } = await supabase
+      .from('reports')
+      .update(reportData)
+      .eq('id', id)
+      .select(`
+        *,
+        user:users(*)
+      `)
+      .single();
+    
+    if (error) {
+      console.error('Error updating report:', error);
+      return null;
+    }
+    
+    return data as Report;
+  },
+
+  async deleteReport(id: string): Promise<boolean> {
+    const { error } = await supabase
+      .from('reports')
+      .delete()
+      .eq('id', id);
+    
+    if (error) {
+      console.error('Error deleting report:', error);
+      return false;
+    }
+    
+    return true;
+  },
+
+  // =====================================================
+  // LIBRARY SETTINGS FUNCTIONS
+  // =====================================================
+
+  async getLibrarySettings(): Promise<LibrarySetting[]> {
+    const { data, error } = await supabase
+      .from('library_settings')
+      .select(`
+        *,
+        updated_by_user:users!updated_by(*)
+      `)
+      .order('category', { ascending: true });
+    
+    if (error) {
+      console.error('Error fetching library settings:', error);
+      return [];
+    }
+    
+    return data as LibrarySetting[];
+  },
+
+  async getLibrarySettingsByCategory(category: string): Promise<LibrarySetting[]> {
+    const { data, error } = await supabase
+      .from('library_settings')
+      .select(`
+        *,
+        updated_by_user:users!updated_by(*)
+      `)
+      .eq('category', category)
+      .order('setting_key', { ascending: true });
+    
+    if (error) {
+      console.error('Error fetching library settings by category:', error);
+      return [];
+    }
+    
+    return data as LibrarySetting[];
+  },
+
+  async getLibrarySettingByKey(settingKey: string): Promise<LibrarySetting | null> {
+    const { data, error } = await supabase
+      .from('library_settings')
+      .select(`
+        *,
+        updated_by_user:users!updated_by(*)
+      `)
+      .eq('setting_key', settingKey)
+      .single();
+    
+    if (error) {
+      console.error('Error fetching library setting:', error);
+      return null;
+    }
+    
+    return data as LibrarySetting;
+  },
+
+  async createLibrarySetting(settingData: Partial<LibrarySetting>): Promise<LibrarySetting | null> {
+    const { data, error } = await supabase
+      .from('library_settings')
+      .insert(settingData)
+      .select(`
+        *,
+        updated_by_user:users!updated_by(*)
+      `)
+      .single();
+    
+    if (error) {
+      console.error('Error creating library setting:', error);
+      return null;
+    }
+    
+    return data as LibrarySetting;
+  },
+
+  async updateLibrarySetting(id: string, settingData: Partial<LibrarySetting>): Promise<LibrarySetting | null> {
+    const { data, error } = await supabase
+      .from('library_settings')
+      .update(settingData)
+      .eq('id', id)
+      .select(`
+        *,
+        updated_by_user:users!updated_by(*)
+      `)
+      .single();
+    
+    if (error) {
+      console.error('Error updating library setting:', error);
+      return null;
+    }
+    
+    return data as LibrarySetting;
+  },
+
+  async deleteLibrarySetting(id: string): Promise<boolean> {
+    const { error } = await supabase
+      .from('library_settings')
+      .delete()
+      .eq('id', id);
+    
+    if (error) {
+      console.error('Error deleting library setting:', error);
+      return false;
+    }
+    
+    return true;
+  },
+
+  // =====================================================
+  // UTILITY FUNCTIONS FOR NEW FEATURES
+  // =====================================================
+
+  async getTotalVisitorsToday(): Promise<number> {
+    const today = new Date().toISOString().split('T')[0];
+    const { count, error } = await supabase
+      .from('visitors')
+      .select('*', { count: 'exact', head: true })
+      .eq('visit_date', today);
+    
+    if (error) {
+      console.error('Error getting total visitors today:', error);
+      return 0;
+    }
+    
+    return count || 0;
+  },
+
+  async getTotalActiveBorrowings(): Promise<number> {
+    const { count, error } = await supabase
+      .from('active_borrowings')
+      .select('*', { count: 'exact', head: true })
+      .eq('status', 'active');
+    
+    if (error) {
+      console.error('Error getting total active borrowings:', error);
+      return 0;
+    }
+    
+    return count || 0;
+  },
+
+  async getTotalOverdueBorrowings(): Promise<number> {
+    const today = new Date().toISOString().split('T')[0];
+    const { count, error } = await supabase
+      .from('active_borrowings')
+      .select('*', { count: 'exact', head: true })
+      .lt('due_date', today)
+      .eq('status', 'active');
+    
+    if (error) {
+      console.error('Error getting total overdue borrowings:', error);
+      return 0;
+    }
+    
+    return count || 0;
+  },
+
+  async getTotalInventoryItems(): Promise<number> {
+    const { count, error } = await supabase
+      .from('inventory_items')
+      .select('*', { count: 'exact', head: true });
+    
+    if (error) {
+      console.error('Error getting total inventory items:', error);
+      return 0;
+    }
+    
+    return count || 0;
   },
 };

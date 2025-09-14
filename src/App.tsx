@@ -12,6 +12,8 @@ function AppContent() {
   const [currentPage, setCurrentPage] = useState('library');
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [activeMenu, setActiveMenu] = useState<string | undefined>(undefined);
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
   const { notifications, removeNotification } = useNotification();
 
   // Load data from database on component mount
@@ -24,18 +26,77 @@ function AppContent() {
         const user = await databaseService.getCurrentUser();
         if (user) {
           setCurrentUser(user);
+          
+          // Check hash routing after user is loaded
+          const hash = window.location.hash;
+          if (hash && hash.startsWith('#')) {
+            const menuId = hash.substring(1); // Remove # from hash
+            setActiveMenu(menuId);
+            setCurrentPage('dashboard');
+          } else {
+            // Default to dashboard if user is logged in
+            setCurrentPage('dashboard');
+          }
+        } else {
+          // If no user found, ensure we're on the library page
+          setCurrentUser(null);
+          setCurrentPage('library');
         }
       } catch (error) {
         console.error('Error loading data:', error);
       } finally {
         setIsLoading(false);
+        setIsInitialLoad(false);
       }
     };
 
     loadData();
   }, []);
 
+  // Handle hash-based routing for navigation changes
+  useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash;
+      if (hash && hash.startsWith('#') && currentUser && !isInitialLoad) {
+        const menuId = hash.substring(1); // Remove # from hash
+        setActiveMenu(menuId);
+        setCurrentPage('dashboard');
+      }
+    };
+
+    // Listen for hash changes (but not on initial load)
+    window.addEventListener('hashchange', handleHashChange);
+    
+    return () => {
+      window.removeEventListener('hashchange', handleHashChange);
+    };
+  }, [currentUser, isInitialLoad]);
+
+  // Update hash URL when page or menu changes (but not on initial load)
+  useEffect(() => {
+    if (!isInitialLoad) {
+      if (currentPage === 'library') {
+        window.location.hash = '';
+      } else if (currentPage === 'dashboard' && activeMenu) {
+        window.location.hash = `#${activeMenu}`;
+      } else if (currentPage === 'auth') {
+        window.location.hash = '#auth';
+      }
+    }
+  }, [currentPage, activeMenu, isInitialLoad]);
+
   const navigateToDashboard = () => {
+    // Set initial active menu based on user role for dashboard
+    let initialMenu = 'opac'; // Default
+    if (currentUser?.role === 'student') {
+      initialMenu = 'profile'; // Student dashboard starts with profile
+    } else if (currentUser?.role === 'teacher') {
+      initialMenu = 'profile'; // Teacher dashboard starts with profile
+    } else if (currentUser?.role === 'librarian') {
+      initialMenu = 'statistics'; // Librarian dashboard starts with statistics
+    }
+    
+    setActiveMenu(initialMenu);
     setCurrentPage('dashboard');
   };
 
@@ -45,22 +106,26 @@ function AppContent() {
 
   const navigateToLibrary = useCallback(() => {
     setCurrentPage('library');
+    setActiveMenu(undefined);
   }, []);
+
+  const [bookRefreshTrigger, setBookRefreshTrigger] = useState(0);
 
   const handleBookAdded = useCallback(() => {
     // This will trigger a refresh of books in DigitalLibrary
     console.log('Book added, refreshing library...');
+    setBookRefreshTrigger(prev => prev + 1);
   }, []);
 
   const handleNavigateToLibrary = useCallback(() => {
     setCurrentPage('library');
+    setActiveMenu(undefined);
   }, []);
 
   const handleNavigateToOPAC = useCallback(() => {
     setCurrentPage('library');
+    setActiveMenu(undefined);
   }, []);
-
-  const [activeMenu, setActiveMenu] = useState<string | undefined>(undefined);
 
   const handleNavigateToStatistics = useCallback(() => {
     setActiveMenu('statistics');
@@ -69,8 +134,20 @@ function AppContent() {
 
   const handleLogin = async (user: User) => {
     try {
-    setCurrentUser(user);
-    setCurrentPage('dashboard');
+      setCurrentUser(user);
+      
+      // Set initial active menu based on user role for dashboard
+      let initialMenu = 'opac'; // Default
+      if (user.role === 'student') {
+        initialMenu = 'profile'; // Student dashboard starts with profile
+      } else if (user.role === 'teacher') {
+        initialMenu = 'profile'; // Teacher dashboard starts with profile
+      } else if (user.role === 'librarian') {
+        initialMenu = 'statistics'; // Librarian dashboard starts with statistics
+      }
+      
+      setActiveMenu(initialMenu);
+      setCurrentPage('dashboard');
       
       // Log activity
       await databaseService.createActivity({
@@ -109,6 +186,14 @@ function AppContent() {
     }
   };
 
+  const handleUserUpdate = (updatedUser: User) => {
+    setCurrentUser(updatedUser);
+  };
+
+  const handleMenuChange = (menuId: string) => {
+    setActiveMenu(menuId);
+  };
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-white flex items-center justify-center">
@@ -129,6 +214,7 @@ function AppContent() {
           onNavigateToAuth={navigateToAuth}
           onBookAdded={handleBookAdded}
           onNavigateToStatistics={handleNavigateToStatistics}
+          bookRefreshTrigger={bookRefreshTrigger}
         />
       )}
       {currentPage === 'auth' && (
@@ -146,6 +232,8 @@ function AppContent() {
           onBookAdded={handleBookAdded}
           dashboardType={currentUser.role as 'librarian' | 'teacher' | 'student'}
           initialActiveMenu={activeMenu}
+          onUserUpdate={handleUserUpdate}
+          onMenuChange={handleMenuChange}
         />
       )}
       

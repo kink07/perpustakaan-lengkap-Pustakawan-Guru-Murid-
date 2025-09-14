@@ -33,9 +33,10 @@ interface DigitalLibraryProps {
   onNavigateToAuth?: () => void;
   onBookAdded?: () => void;
   onNavigateToStatistics?: () => void;
+  bookRefreshTrigger?: number;
 }
 
-function DigitalLibrary({ currentUser, onNavigateToDashboard, onNavigateToAuth, onBookAdded, onNavigateToStatistics }: DigitalLibraryProps) {
+function DigitalLibrary({ currentUser, onNavigateToDashboard, onNavigateToAuth, onBookAdded, onNavigateToStatistics, bookRefreshTrigger }: DigitalLibraryProps) {
   const { showNotification } = useNotification();
   const [books, setBooks] = useState<BookData[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -54,6 +55,7 @@ function DigitalLibrary({ currentUser, onNavigateToDashboard, onNavigateToAuth, 
     try {
       const booksData = await databaseService.getCatalogBooks();
       // Convert catalog books to BookData format
+      console.log('Loading books from database:', booksData);
       const convertedBooks: BookData[] = booksData.map(book => ({
         id: book.id,
         title: book.title,
@@ -66,36 +68,42 @@ function DigitalLibrary({ currentUser, onNavigateToDashboard, onNavigateToAuth, 
                 book.status === 'borrowed' ? 'Dipinjam' : 
                 book.status === 'reserved' ? 'Dipesan' : 
                 book.status === 'damaged' ? 'Rusak' : 'Hilang',
-        cover: book.cover_image_url || undefined,
+        cover: book.cover_image_url || book.cover || undefined,
         location: book.location || '',
         description: book.description || '',
         pages: book.pages?.toString() || '',
         language: book.language || 'Indonesia',
         price: book.price?.toString() || '',
         notes: book.notes || '',
-        // Add default values for required fields
-        subtitle: '',
-        coAuthor: '',
-        editor: '',
-        translator: '',
-        illustrator: '',
-        publicationPlace: '',
-        edition: '',
-        issn: '',
-        subcategory: '',
-        subjects: [],
-        physicalDescription: '',
-        contentType: 'Teks',
-        mediaType: 'Tanpa Mediasi',
-        carrierType: 'Volume',
-        copyNumber: 1,
-        barcode: '',
-        source: '',
+        // Map all fields from CatalogBook to BookData
+        subtitle: book.subtitle || '',
+        coAuthor: book.coAuthor || '',
+        editor: book.editor || '',
+        translator: book.translator || '',
+        illustrator: book.illustrator || '',
+        publicationPlace: book.publicationPlace || '',
+        edition: book.edition || '',
+        issn: book.issn || '',
+        series: book.series || '',
+        volume: book.volume || '',
+        subcategory: book.subcategory || '',
+        subjects: book.subjects || [],
+        physicalDescription: book.physicalDescription || '',
+        contentType: book.contentType || 'Teks',
+        mediaType: book.mediaType || 'Tanpa Mediasi',
+        carrierType: book.carrierType || 'Volume',
+        copyNumber: book.copyNumber || 1,
+        barcode: book.barcode || '',
+        source: book.source || '',
         acquisitionDate: book.acquisition_date || new Date().toISOString().split('T')[0],
-        condition: 'Baik',
-        abstract: '',
-        digitalFiles: []
+        condition: book.condition || 'Baik',
+        abstract: book.abstract || '',
+        digitalFiles: book.digital_files || [],
+        callNumber: book.callNumber || '',
+        deweyNumber: book.deweyNumber || '',
+        dimensions: book.dimensions || ''
       }));
+      console.log('Converted books with covers:', convertedBooks.map(b => ({ id: b.id, title: b.title, cover: b.cover })));
       setBooks(convertedBooks);
     } catch (error) {
       console.error('Error loading books:', error);
@@ -116,6 +124,13 @@ function DigitalLibrary({ currentUser, onNavigateToDashboard, onNavigateToAuth, 
       loadBooks();
     }
   }, [onBookAdded]);
+
+  // Listen for book refresh trigger
+  useEffect(() => {
+    if (bookRefreshTrigger && bookRefreshTrigger > 0) {
+      loadBooks();
+    }
+  }, [bookRefreshTrigger]);
 
   // Load user's existing favorites
   const loadUserFavorites = async () => {
@@ -337,9 +352,7 @@ function DigitalLibrary({ currentUser, onNavigateToDashboard, onNavigateToAuth, 
   };
 
   const handleProfileClick = () => {
-    if (currentUser?.role === 'librarian' && onNavigateToStatistics) {
-      onNavigateToStatistics();
-    } else if (onNavigateToDashboard) {
+    if (onNavigateToDashboard) {
       onNavigateToDashboard();
     }
   };
@@ -373,11 +386,19 @@ function DigitalLibrary({ currentUser, onNavigateToDashboard, onNavigateToAuth, 
                     className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
                     title={currentUser?.role === 'librarian' ? "Klik untuk ke Dashboard Statistik" : "Klik untuk ke Dashboard"}
                   >
-                    <div className="w-8 h-8 bg-gradient-to-r from-blue-600 to-purple-600 rounded-full flex items-center justify-center">
-                      <span className="text-white text-sm font-bold">
-                        {currentUser.name ? currentUser.name.charAt(0).toUpperCase() : 'U'}
-                      </span>
-                    </div>
+                    {currentUser?.profile_image ? (
+                      <img 
+                        src={currentUser.profile_image} 
+                        alt="Profile" 
+                        className="w-8 h-8 rounded-full object-cover border-2 border-yellow-400"
+                      />
+                    ) : (
+                      <div className="w-8 h-8 bg-gradient-to-r from-blue-600 to-purple-600 rounded-full flex items-center justify-center border-2 border-yellow-400">
+                        <span className="text-white text-sm font-bold">
+                          {currentUser.name ? currentUser.name.charAt(0).toUpperCase() : 'U'}
+                        </span>
+                      </div>
+                    )}
                   </button>
                 </div>
               ) : (
@@ -484,15 +505,20 @@ function DigitalLibrary({ currentUser, onNavigateToDashboard, onNavigateToAuth, 
             <p className="text-gray-600">{filteredBooks.length} hasil ditemukan</p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
             {filteredBooks.map((book) => (
-              <div key={book.id} className="bg-white rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 overflow-hidden group">
+              <div key={book.id} className="bg-white border-2 border-blue-200 rounded-lg shadow-md hover:border-yellow-300 hover:shadow-lg transition-all duration-300 overflow-hidden group max-w-xs mx-auto">
                 {/* Book Cover */}
                 <div className="relative overflow-hidden">
                   <img
-                    src={book.cover || 'https://images.pexels.com/photos/159711/books-bookstore-book-reading-159711.jpeg?auto=compress&cs=tinysrgb&w=300'}
+                    src={book.cover ? `${book.cover}?t=${Date.now()}` : 'https://images.pexels.com/photos/159711/books-bookstore-book-reading-159711.jpeg?auto=compress&cs=tinysrgb&w=300'}
                     alt={book.title}
-                    className="w-full h-48 object-cover group-hover:scale-105 transition-transform duration-300"
+                    className="w-full h-64 object-cover group-hover:scale-105 transition-transform duration-300"
+                    key={`${book.id}-${book.cover || 'default'}-${Date.now()}`}
+                    onError={(e) => {
+                      const target = e.target as HTMLImageElement;
+                      target.src = 'https://images.pexels.com/photos/159711/books-bookstore-book-reading-159711.jpeg?auto=compress&cs=tinysrgb&w=300';
+                    }}
                   />
                   <div className="absolute top-3 right-3">
                     <span className="bg-blue-600 text-white text-xs px-2 py-1 rounded-full">
@@ -543,42 +569,129 @@ function DigitalLibrary({ currentUser, onNavigateToDashboard, onNavigateToAuth, 
                 </div>
 
                 {/* Book Info */}
-                <div className="p-6">
-                  <h3 className="text-lg font-bold text-gray-900 mb-2 line-clamp-2">{book.title}</h3>
-                  <p className="text-gray-600 mb-3">{book.author}</p>
+                <div className="p-3">
+                  <h3 className="text-sm font-bold text-gray-900 mb-1 line-clamp-2">{book.title}</h3>
+                  <p className="text-gray-600 text-xs mb-2">{book.author}</p>
 
                   
                   {/* Book Details */}
-                  <div className="space-y-1 mb-4">
-                    <div className="flex items-center text-gray-500 text-sm">
-                      <span className="font-medium w-20">Terbit:</span>
+                  <div className="space-y-0.5 mb-2">
+                    <div className="flex items-center text-gray-500 text-xs">
+                      <span className="font-medium w-16">Terbit:</span>
                       <span>{book.publisher}, {book.publicationYear}</span>
                     </div>
-                    <div className="flex items-center text-gray-500 text-sm">
-                      <span className="font-medium w-20">No. Panggil:</span>
-                      <span className="font-mono text-blue-600">{book.callNumber}</span>
-                    </div>
+                    {book.subtitle && (
+                      <div className="flex items-center text-gray-500 text-xs">
+                        <span className="font-medium w-16">Sub Judul:</span>
+                        <span className="line-clamp-1">{book.subtitle}</span>
+                      </div>
+                    )}
+                    {book.coAuthor && (
+                      <div className="flex items-center text-gray-500 text-xs">
+                        <span className="font-medium w-16">Co-Author:</span>
+                        <span className="line-clamp-1">{book.coAuthor}</span>
+                      </div>
+                    )}
+                    {book.edition && (
+                      <div className="flex items-center text-gray-500 text-xs">
+                        <span className="font-medium w-16">Edisi:</span>
+                        <span>{book.edition}</span>
+                      </div>
+                    )}
+                    {book.isbn && (
+                      <div className="flex items-center text-gray-500 text-xs">
+                        <span className="font-medium w-16">ISBN:</span>
+                        <span className="font-mono text-blue-600">{book.isbn}</span>
+                      </div>
+                    )}
+                    {book.callNumber && (
+                      <div className="flex items-center text-gray-500 text-xs">
+                        <span className="font-medium w-16">No. Panggil:</span>
+                        <span className="font-mono text-blue-600">{book.callNumber}</span>
+                      </div>
+                    )}
+                    {book.deweyNumber && (
+                      <div className="flex items-center text-gray-500 text-xs">
+                        <span className="font-medium w-16">Dewey:</span>
+                        <span className="font-mono text-green-600">{book.deweyNumber}</span>
+                      </div>
+                    )}
+                    {book.pages && (
+                      <div className="flex items-center text-gray-500 text-xs">
+                        <span className="font-medium w-16">Halaman:</span>
+                        <span>{book.pages}</span>
+                      </div>
+                    )}
+                    {book.language && book.language !== 'Indonesia' && (
+                      <div className="flex items-center text-gray-500 text-xs">
+                        <span className="font-medium w-16">Bahasa:</span>
+                        <span>{book.language}</span>
+                      </div>
+                    )}
                   </div>
 
                   {/* Location */}
-                  <div className="flex items-center text-gray-500 text-sm mb-3">
-                    <MapPin className="w-4 h-4 mr-2" />
+                  <div className="flex items-center text-gray-500 text-xs mb-2">
+                    <MapPin className="w-3 h-3 mr-1" />
                     <span>{book.location}</span>
                   </div>
 
+                  {/* Subjects */}
+                  {book.subjects && book.subjects.length > 0 && (
+                    <div className="mb-2">
+                      <div className="flex flex-wrap gap-1">
+                        {book.subjects.slice(0, 3).map((subject, index) => (
+                          <span
+                            key={index}
+                            className="inline-block bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full"
+                          >
+                            {subject}
+                          </span>
+                        ))}
+                        {book.subjects.length > 3 && (
+                          <span className="inline-block bg-gray-100 text-gray-600 text-xs px-2 py-1 rounded-full">
+                            +{book.subjects.length - 3} lagi
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Abstract */}
+                  {book.abstract && (
+                    <div className="mb-2">
+                      <p className="text-xs text-gray-600 line-clamp-2">
+                        <span className="font-medium">Abstrak:</span> {book.abstract}
+                      </p>
+                    </div>
+                  )}
+
                   {/* Digital Files */}
-                  <div className="space-y-2">
-                    <p className="text-sm font-medium text-gray-700">File Digital:</p>
-                    <div className="flex flex-wrap gap-2">
-                      {(book.digitalFiles || []).map((fileType, index) => (
-                        <div
-                          key={index}
-                          className={`flex items-center space-x-1 px-3 py-1 rounded-full text-xs font-medium ${getFileColor(fileType)}`}
-                        >
-                          {getFileIcon(fileType)}
-                          <span>{fileType}</span>
-                        </div>
-                      ))}
+                  <div className="space-y-1">
+                    <p className="text-xs font-medium text-gray-700">File Digital:</p>
+                    <div className="flex flex-wrap gap-1">
+                      {(book.digitalFiles || []).length > 0 ? (
+                        (book.digitalFiles || []).map((fileUrl, index) => {
+                          // Extract file extension from URL
+                          const fileExtension = fileUrl.split('.').pop()?.toLowerCase() || '';
+                          const fileName = fileUrl.split('/').pop() || `File ${index + 1}`;
+                          
+                          return (
+                            <a
+                              key={index}
+                              href={fileUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center space-x-1 px-2 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors"
+                            >
+                              <Download className="w-3 h-3" />
+                              <span className="truncate max-w-20">{fileName}</span>
+                            </a>
+                          );
+                        })
+                      ) : (
+                        <span className="text-gray-500 text-xs">Tidak ada file digital</span>
+                      )}
                     </div>
                   </div>
 

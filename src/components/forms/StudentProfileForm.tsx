@@ -28,6 +28,7 @@ import {
   Heart,
   Bookmark
 } from 'lucide-react';
+import { databaseService } from '../../services/database';
 
 function StudentProfileForm() {
   const [activeTab, setActiveTab] = useState('personal-info');
@@ -67,9 +68,22 @@ function StudentProfileForm() {
     }));
   };
 
-  const handleSave = () => {
-    alert('Profil berhasil diperbarui!');
-    setIsEditing(false);
+  const handleSave = async () => {
+    try {
+      // Update user data in the database
+      const updatedUser = await databaseService.updateUser('current-user-id', {
+        name: profileData.fullName,
+        phone: profileData.phone,
+        address: profileData.address,
+        // Add other fields as needed
+      });
+      
+      alert('Profil berhasil diperbarui!');
+      setIsEditing(false);
+    } catch (error) {
+      console.error('Error updating profile:', error);
+      alert('Terjadi kesalahan saat memperbarui profil.');
+    }
   };
 
   const renderPersonalInfo = () => (

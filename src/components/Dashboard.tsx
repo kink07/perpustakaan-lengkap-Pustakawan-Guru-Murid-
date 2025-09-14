@@ -48,6 +48,7 @@ import DescriptiveCatalogingForm from './DescriptiveCatalogingForm';
 import BookListTable from './BookListTable';
 import CirculationForm from './forms/CirculationForm';
 import UserManagementForm from './forms/UserManagementForm';
+import { databaseService } from '../services/database';
 import VisitorForm from './forms/VisitorForm';
 import ReportsForm from './forms/ReportsForm';
 import SettingsForm from './forms/SettingsForm';
@@ -84,6 +85,8 @@ interface DashboardProps {
   onBookAdded?: () => void;
   dashboardType?: 'librarian' | 'teacher' | 'student' | 'default';
   initialActiveMenu?: string;
+  onUserUpdate?: (user: any) => void;
+  onMenuChange?: (menuId: string) => void;
 }
 
 interface MenuItem {
@@ -94,8 +97,9 @@ interface MenuItem {
   submenu?: MenuItem[];
 }
 
-function Dashboard({ user, onLogout, onNavigateToLibrary, onNavigateToOPAC, onBookAdded, dashboardType = 'default', initialActiveMenu }: DashboardProps) {
+function Dashboard({ user, onLogout, onNavigateToLibrary, onNavigateToOPAC, onBookAdded, dashboardType = 'default', initialActiveMenu, onUserUpdate, onMenuChange }: DashboardProps) {
   const [activeMenu, setActiveMenu] = useState(initialActiveMenu || 'opac');
+  const [currentUser, setCurrentUser] = useState(user);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [openSubmenus, setOpenSubmenus] = useState<string[]>([]);
   const [isEditProfileOpen, setIsEditProfileOpen] = useState(false);
@@ -107,10 +111,15 @@ function Dashboard({ user, onLogout, onNavigateToLibrary, onNavigateToOPAC, onBo
     }
   }, [initialActiveMenu]);
 
+  // Update currentUser when user prop changes
+  useEffect(() => {
+    setCurrentUser(user);
+  }, [user]);
+
   // Define menu items based on dashboard type
   const getMenuItems = (): MenuItem[] => {
     const commonItems = [
-      { id: 'opac', label: 'Home', icon: <Search className="w-5 h-5" /> }
+      { id: 'opac', label: 'Beranda', icon: <Search className="w-5 h-5" /> }
     ];
 
     if (dashboardType === 'librarian') {
@@ -193,6 +202,10 @@ function Dashboard({ user, onLogout, onNavigateToLibrary, onNavigateToOPAC, onBo
       toggleSubmenu(menuId);
     } else {
       setActiveMenu(menuId);
+      // Notify parent component about menu change
+      if (onMenuChange) {
+        onMenuChange(menuId);
+      }
       // Auto-collapse sidebar on mobile after menu selection
       if (window.innerWidth < 768) {
         setIsSidebarCollapsed(true);
@@ -200,14 +213,44 @@ function Dashboard({ user, onLogout, onNavigateToLibrary, onNavigateToOPAC, onBo
     }
   };
 
-  const handleSaveProfile = (updatedUser: any) => {
-    // Update user data (in a real app, this would call an API)
-    console.log('Profile updated:', updatedUser);
-    // You can add API call here to save to database
+  const handleSaveProfile = async (userData: any) => {
+    try {
+      // Filter hanya field yang valid untuk database
+      const validUpdates = {
+        name: userData.name,
+        institution: userData.institution,
+        position: userData.position,
+        phone: userData.phone,
+        profile_image: userData.profile_image
+      };
+      
+      console.log('Updating profile with:', validUpdates);
+      
+      // Update user data in the database
+      const updatedUserData = await databaseService.updateUser(currentUser.id, validUpdates);
+      
+      // Update local user state
+      setCurrentUser(updatedUserData);
+      
+      // Notify parent component about user update
+      if (onUserUpdate) {
+        onUserUpdate(updatedUserData);
+      }
+      
+      console.log('Profile updated successfully:', validUpdates);
+      alert('Profil berhasil diperbarui!');
+    } catch (error) {
+      console.error('Error updating profile:', error);
+      alert('Terjadi kesalahan saat memperbarui profil.');
+    }
   };
 
   const handleQuickAction = (menuId: string) => {
     setActiveMenu(menuId);
+    // Notify parent component about menu change
+    if (onMenuChange) {
+      onMenuChange(menuId);
+    }
   };
 
   const renderContent = () => {
@@ -239,7 +282,7 @@ function Dashboard({ user, onLogout, onNavigateToLibrary, onNavigateToOPAC, onBo
       case 'settings':
         return <SettingsForm />;
       case 'profile':
-        return user.role === 'teacher' ? <TeacherProfileForm /> : <StudentProfileForm />;
+        return currentUser.role === 'teacher' ? <TeacherProfileForm /> : <StudentProfileForm />;
       case 'class-management':
         return <TeacherClassManagementForm />;
       case 'curriculum-books':
@@ -268,13 +311,83 @@ function Dashboard({ user, onLogout, onNavigateToLibrary, onNavigateToOPAC, onBo
 
 
 
+  const renderLibrarianDashboard = () => (
+    <div className="space-y-6">
+      {/* Welcome Section */}
+      <div className="bg-gradient-to-r from-blue-600 to-purple-600 rounded-2xl p-6 text-white">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold mb-2">Selamat Datang, {currentUser.name}</h1>
+            <p className="text-blue-100">Dashboard Pustakawan - Kelola perpustakaan digital</p>
+          </div>
+          <div className="hidden md:block">
+            <Users className="w-16 h-16 text-blue-200" />
+          </div>
+        </div>
+      </div>
+
+      {/* Librarian Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-gray-600 text-sm font-medium">Total Buku</p>
+              <p className="text-2xl font-bold text-gray-900">-</p>
+            </div>
+            <Book className="w-8 h-8 text-blue-600" />
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-gray-600 text-sm font-medium">Peminjaman Aktif</p>
+              <p className="text-2xl font-bold text-gray-900">-</p>
+            </div>
+            <BookOpen className="w-8 h-8 text-green-600" />
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-gray-600 text-sm font-medium">Total Pengguna</p>
+              <p className="text-2xl font-bold text-gray-900">-</p>
+            </div>
+            <Users className="w-8 h-8 text-purple-600" />
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-gray-600 text-sm font-medium">Pengunjung Hari Ini</p>
+              <p className="text-2xl font-bold text-gray-900">-</p>
+            </div>
+            <Eye className="w-8 h-8 text-yellow-600" />
+          </div>
+        </div>
+      </div>
+
+      {/* Recent Activities */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">Aktivitas Terbaru</h3>
+        <div className="space-y-4">
+          <div className="text-center py-8">
+            <p className="text-gray-500">Aktivitas akan dimuat dari database</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
   const renderTeacherDashboard = () => (
     <div className="space-y-6">
       {/* Welcome Section */}
       <div className="bg-gradient-to-r from-green-600 to-blue-600 rounded-2xl p-6 text-white">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold mb-2">Selamat Datang, {user.name}</h1>
+            <h1 className="text-2xl font-bold mb-2">Selamat Datang, {currentUser.name}</h1>
             <p className="text-green-100">Dashboard Guru - Kelola pembelajaran dan materi ajar</p>
           </div>
           <div className="hidden md:block">
@@ -344,7 +457,7 @@ function Dashboard({ user, onLogout, onNavigateToLibrary, onNavigateToOPAC, onBo
       <div className="bg-gradient-to-r from-purple-600 to-pink-600 rounded-2xl p-6 text-white">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold mb-2">Selamat Datang, {user.name}</h1>
+            <h1 className="text-2xl font-bold mb-2">Selamat Datang, {currentUser.name}</h1>
             <p className="text-purple-100">Dashboard Siswa - Jelajahi dunia pengetahuan</p>
           </div>
           <div className="hidden md:block">
@@ -434,11 +547,19 @@ function Dashboard({ user, onLogout, onNavigateToLibrary, onNavigateToOPAC, onBo
               onClick={() => setIsEditProfileOpen(true)}
               title="Klik untuk edit profil"
             >
-              <div className="w-12 h-12 bg-gradient-to-r from-blue-600 to-purple-600 rounded-full flex items-center justify-center border-2 border-yellow-400">
-                <div className="text-white text-lg font-bold">
-                  {user?.name?.charAt(0) || 'U'}
+              {currentUser?.profile_image ? (
+                <img 
+                  src={currentUser.profile_image} 
+                  alt="Profile" 
+                  className="w-12 h-12 rounded-full border-2 border-yellow-400 object-cover"
+                />
+              ) : (
+                <div className="w-12 h-12 bg-gradient-to-r from-blue-600 to-purple-600 rounded-full flex items-center justify-center border-2 border-yellow-400">
+                  <div className="text-white text-lg font-bold">
+                    {currentUser?.name?.charAt(0) || 'U'}
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
             
             {!isSidebarCollapsed && (
@@ -451,7 +572,7 @@ function Dashboard({ user, onLogout, onNavigateToLibrary, onNavigateToOPAC, onBo
                   >
                     {/* Name with Edit Icon */}
                     <div className="flex items-center space-x-2 mb-1">
-                      <h3 className="text-lg font-bold text-gray-900 truncate">{user.name}</h3>
+                      <h3 className="text-lg font-bold text-gray-900 truncate">{currentUser.name}</h3>
                       <Edit3 className="w-4 h-4 text-gray-400" />
                     </div>
                     
@@ -459,8 +580,8 @@ function Dashboard({ user, onLogout, onNavigateToLibrary, onNavigateToOPAC, onBo
                     <div className="flex items-center space-x-1 mb-1">
                       <Briefcase className="w-3 h-3 text-gray-500" />
                       <p className="text-sm text-gray-600">
-                        {user.role === 'librarian' ? 'Pustakawan' : 
-                         user.role === 'teacher' ? 'Guru' : 'Siswa'}
+                        {currentUser.role === 'librarian' ? 'Pustakawan' : 
+                         currentUser.role === 'teacher' ? 'Guru' : 'Siswa'}
                       </p>
                     </div>
                     
@@ -468,7 +589,7 @@ function Dashboard({ user, onLogout, onNavigateToLibrary, onNavigateToOPAC, onBo
                     <div className="flex items-center space-x-1">
                       <Building className="w-3 h-3 text-blue-500" />
                       <p className="text-sm text-blue-600 font-medium">
-                        {user.institution || 'SMAN 1 Jakarta'}
+                        {currentUser.institution || 'SMAN 1 Jakarta'}
                       </p>
                     </div>
                   </div>
@@ -614,12 +735,12 @@ function Dashboard({ user, onLogout, onNavigateToLibrary, onNavigateToOPAC, onBo
       )}
 
       {/* Edit Profile Modal */}
-      <EditProfileModal
-        isOpen={isEditProfileOpen}
-        onClose={() => setIsEditProfileOpen(false)}
-        user={user}
-        onSave={handleSaveProfile}
-      />
+        <EditProfileModal
+          isOpen={isEditProfileOpen}
+          onClose={() => setIsEditProfileOpen(false)}
+          user={currentUser}
+          onSave={handleSaveProfile}
+        />
     </div>
   );
 }

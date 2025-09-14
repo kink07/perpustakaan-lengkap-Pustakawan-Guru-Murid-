@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Book,
   Save,
@@ -25,12 +25,19 @@ interface DescriptiveCatalogingFormProps {
 interface FormBookData extends Omit<BookData, 'id' | 'status' | 'cover' | 'digitalFiles'> {
   coverImage: File | null;
   digitalFiles: File[];
+  cover?: string; // Existing cover URL
+  existingDigitalFiles?: string[]; // Existing digital file URLs
   subcategory?: string;
   description?: string;
 }
 
 function DescriptiveCatalogingForm({ user, onBookAdded }: DescriptiveCatalogingFormProps) {
   const { showNotification } = useNotification();
+  
+  // Check if we're in edit mode
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [editingBookId, setEditingBookId] = useState<string | null>(null);
+  
   const [bookData, setBookData] = useState<FormBookData>({
     title: '',
     subtitle: '',
@@ -69,6 +76,8 @@ function DescriptiveCatalogingForm({ user, onBookAdded }: DescriptiveCatalogingF
     abstract: '',
     coverImage: null,
     digitalFiles: [],
+    cover: '',
+    existingDigitalFiles: [],
     subcategory: '',
     description: ''
   });
@@ -76,6 +85,68 @@ function DescriptiveCatalogingForm({ user, onBookAdded }: DescriptiveCatalogingF
   const [newSubject, setNewSubject] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+
+  // Check for editing book data on component mount
+  useEffect(() => {
+    const editingBookData = localStorage.getItem('editingBook');
+    if (editingBookData) {
+      try {
+        const book = JSON.parse(editingBookData);
+        setIsEditMode(true);
+        setEditingBookId(book.id);
+        
+        // Populate form with existing data
+        setBookData({
+          title: book.title || '',
+          subtitle: book.subtitle || '',
+          author: book.author || '',
+          coAuthor: book.coAuthor || '',
+          editor: book.editor || '',
+          translator: book.translator || '',
+          illustrator: book.illustrator || '',
+          category: book.category || '',
+          publisher: book.publisher || '',
+          publicationPlace: book.publicationPlace || '',
+          publicationYear: book.publicationYear || '',
+          edition: book.edition || '',
+          isbn: book.isbn || '',
+          issn: book.issn || '',
+          callNumber: book.callNumber || '',
+          deweyNumber: book.deweyNumber || '',
+          pages: book.pages || '',
+          dimensions: book.dimensions || '',
+          language: book.language || 'Indonesia',
+          series: book.series || '',
+          volume: book.volume || '',
+          notes: book.notes || '',
+          subjects: book.subjects || [],
+          physicalDescription: book.physicalDescription || '',
+          contentType: book.contentType || 'Teks',
+          mediaType: book.mediaType || 'Tanpa Mediasi',
+          carrierType: book.carrierType || 'Volume',
+          location: book.location || '',
+          copyNumber: parseInt(book.copyNumber) || 1,
+          barcode: book.barcode || '',
+          price: book.price || '',
+          source: book.source || '',
+          acquisitionDate: book.acquisitionDate || new Date().toISOString().split('T')[0],
+          condition: book.condition || 'Baik',
+          abstract: book.abstract || '',
+          coverImage: null,
+          digitalFiles: [],
+          cover: book.cover || '',
+          existingDigitalFiles: book.digitalFiles || [],
+          subcategory: book.subcategory || '',
+          description: book.description || ''
+        });
+        
+        // Clear localStorage
+        localStorage.removeItem('editingBook');
+      } catch (error) {
+        console.error('Error parsing editing book data:', error);
+      }
+    }
+  }, []);
 
   const handleInputChange = (field: keyof FormBookData, value: string | number) => {
     setBookData(prev => ({
@@ -220,31 +291,104 @@ function DescriptiveCatalogingForm({ user, onBookAdded }: DescriptiveCatalogingF
         description: bookData.description || undefined,
         status: 'available' as const,
         location: bookData.location || undefined,
-        acquisition_date: new Date().toISOString().split('T')[0],
+        acquisition_date: bookData.acquisitionDate || new Date().toISOString().split('T')[0],
         acquisition_method: 'Kataloging Manual',
         price: bookData.price ? parseFloat(bookData.price) : undefined,
         notes: bookData.notes || undefined,
         created_by: user.id
       };
 
-      // Save to database
-      const createdBook = await databaseService.createCatalogBook(catalogData);
+      let result;
       
-      if (createdBook) {
-        // Create book label automatically
-        await databaseService.createBookLabel(createdBook.id, {
-          label_template: 'standard',
-          label_size: 'medium',
-          barcode_size: 'medium',
-          created_by: user.id
-        });
+      if (isEditMode && editingBookId) {
+        // Update existing book
+        result = await databaseService.updateCatalogBook(editingBookId, catalogData);
+      } else {
+        // Create new book
+        result = await databaseService.createCatalogBook(catalogData);
+      }
+      
+      if (result) {
+        let coverUrl = '';
+        const digitalFileUrls: string[] = [];
+
+        // Handle cover image
+        if (bookData.coverImage) {
+          // Upload new cover image
+          try {
+            coverUrl = await databaseService.uploadBookCover(result.id, bookData.coverImage);
+            console.log('Cover uploaded:', coverUrl);
+          } catch (error) {
+            console.error('Error uploading cover:', error);
+            showNotification({
+              type: 'warning',
+              title: 'Peringatan',
+              message: 'Buku berhasil disimpan, tetapi cover gagal diupload.'
+            });
+          }
+        } else if (isEditMode && bookData.cover) {
+          // Keep existing cover URL in edit mode
+          coverUrl = bookData.cover;
+          console.log('Keeping existing cover:', coverUrl);
+        }
+
+        // Handle digital files
+        if (bookData.digitalFiles.length > 0) {
+          // Upload new digital files
+          for (const file of bookData.digitalFiles) {
+            try {
+              const fileUrl = await databaseService.uploadBookDigitalFile(result.id, file);
+              digitalFileUrls.push(fileUrl);
+              console.log('Digital file uploaded:', fileUrl);
+            } catch (error) {
+              console.error('Error uploading digital file:', error);
+            }
+          }
+        } else if (isEditMode && bookData.existingDigitalFiles && bookData.existingDigitalFiles.length > 0) {
+          // Keep existing digital files URLs in edit mode
+          digitalFileUrls.push(...bookData.existingDigitalFiles);
+          console.log('Keeping existing digital files:', digitalFileUrls);
+        }
+
+        // Update book with cover and digital files URLs
+        const updateData: any = {};
+        if (coverUrl) updateData.cover_image_url = coverUrl;
+        if (digitalFileUrls.length > 0) updateData.digital_files = digitalFileUrls;
+        
+        // Always update if we have any file data or if we're in edit mode
+        if (coverUrl || digitalFileUrls.length > 0 || isEditMode) {
+          const bookId = isEditMode && editingBookId ? editingBookId : result.id;
+          await databaseService.updateCatalogBook(bookId, updateData);
+          console.log('Updated book with file data:', updateData);
+        }
+
+        // Create book label automatically (only for new books)
+        if (!isEditMode) {
+          await databaseService.createBookLabel(result.id, {
+            label_template: 'standard',
+            label_size: 'medium',
+            barcode_size: 'medium',
+            created_by: user.id
+          });
+        }
 
         // Show success notification
-        showNotification({
-          type: 'success',
-          title: 'Berhasil!',
-          message: 'Buku berhasil ditambahkan!'
-        });
+        if (isEditMode) {
+          showNotification({
+            type: 'success',
+            title: 'Berhasil!',
+            message: 'Buku berhasil diperbarui!'
+          });
+          // Navigate back to book list
+          window.location.href = '#book-list';
+          window.location.reload();
+        } else {
+          showNotification({
+            type: 'success',
+            title: 'Berhasil!',
+            message: 'Buku berhasil ditambahkan dengan file terlampir!'
+          });
+        }
         
         // Trigger refresh of books in other components
         if (onBookAdded) {
@@ -264,8 +408,6 @@ function DescriptiveCatalogingForm({ user, onBookAdded }: DescriptiveCatalogingF
         }
         
         setIsSubmitting(false);
-      } else {
-        throw new Error('Gagal menyimpan data buku');
       }
     } catch (error) {
       console.error('Error saving book:', error);
@@ -329,7 +471,9 @@ function DescriptiveCatalogingForm({ user, onBookAdded }: DescriptiveCatalogingF
 
       {/* Header */}
       <div className="p-6 border-b border-gray-200">
-        <h2 className="text-2xl font-bold text-gray-900">Kataloging Buku</h2>
+        <h2 className="text-2xl font-bold text-gray-900">
+          {isEditMode ? 'Edit Buku' : 'Kataloging Buku'}
+        </h2>
       </div>
 
 
@@ -376,7 +520,7 @@ function DescriptiveCatalogingForm({ user, onBookAdded }: DescriptiveCatalogingF
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Pengarang Utama *
+                  Pengarang Utama
                 </label>
                 <input
                   type="text"
@@ -492,7 +636,7 @@ function DescriptiveCatalogingForm({ user, onBookAdded }: DescriptiveCatalogingF
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Penerbit *
+                  Penerbit
                 </label>
                 <input
                   type="text"
@@ -521,7 +665,7 @@ function DescriptiveCatalogingForm({ user, onBookAdded }: DescriptiveCatalogingF
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Tahun Terbit *
+                  Tahun Terbit
                 </label>
                 <input
                   type="number"
@@ -1107,18 +1251,18 @@ function DescriptiveCatalogingForm({ user, onBookAdded }: DescriptiveCatalogingF
             
             <button
               type="submit"
-              disabled={isSubmitting || !bookData.title || !bookData.author || !bookData.publisher || !bookData.publicationYear || !bookData.category}
+              disabled={isSubmitting || !bookData.title || !bookData.category || !bookData.barcode}
               className="flex items-center space-x-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {isSubmitting ? (
                 <>
                   <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                  <span>Menyimpan...</span>
+                  <span>{isEditMode ? 'Memperbarui...' : 'Menyimpan...'}</span>
                 </>
               ) : (
                 <>
                   <Save className="w-4 h-4" />
-                  <span>Simpan Buku</span>
+                  <span>{isEditMode ? 'Perbarui Buku' : 'Simpan Buku'}</span>
                 </>
               )}
             </button>

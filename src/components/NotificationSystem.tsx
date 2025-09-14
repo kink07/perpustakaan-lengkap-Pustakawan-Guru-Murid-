@@ -74,3 +74,4 @@ function NotificationSystem({ notifications, onRemove }: NotificationSystemProps
 }
 
 export default NotificationSystem;
+

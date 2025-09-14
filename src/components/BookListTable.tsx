@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Book, 
   Search, 
@@ -20,78 +20,176 @@ import {
   CheckCircle,
   AlertCircle,
   Clock,
-  Archive
+  Archive,
+  Loader2
 } from 'lucide-react';
-import { BookData } from '../types/book';
-import { getCategoryLabel } from '../constants/ddcCategories';
+import { CatalogBook } from '../types/database';
+import { databaseService } from '../services/database';
+import { useNotification } from '../contexts/NotificationContext';
 
 interface BookListTableProps {
-  books: BookData[];
-  setBooks: (books: BookData[]) => void;
+  user: any;
+  onBookUpdated?: () => void;
 }
 
-function BookListTable({ books, setBooks }: BookListTableProps) {
+function BookListTable({ user, onBookUpdated }: BookListTableProps) {
+  const { showNotification } = useNotification();
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterStatus, setFilterStatus] = useState('Semua');
-  const [editingId, setEditingId] = useState<number | null>(null);
-  const [editData, setEditData] = useState<BookData | null>(null);
+  const [filterStatus, setFilterStatus] = useState('all');
+  const [editData, setEditData] = useState<CatalogBook | null>(null);
   const [viewMode, setViewMode] = useState<'table' | 'grid'>('table');
+  const [loading, setLoading] = useState(true);
+  const [books, setBooks] = useState<CatalogBook[]>([]);
+  const [selectedBooks, setSelectedBooks] = useState<string[]>([]);
+  const [selectAll, setSelectAll] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
 
-  const statusOptions = ['Semua', 'Tersedia', 'Dipinjam', 'Perawatan', 'Hilang'];
-  const conditionOptions = ['Sangat Baik', 'Baik', 'Cukup', 'Rusak Ringan', 'Rusak Berat'];
+  const statusOptions = [
+    { value: 'all', label: 'Semua' },
+    { value: 'available', label: 'Tersedia' },
+    { value: 'borrowed', label: 'Dipinjam' },
+    { value: 'reserved', label: 'Direservasi' },
+    { value: 'damaged', label: 'Rusak' },
+    { value: 'lost', label: 'Hilang' }
+  ];
+
+  // Load books from database
+  useEffect(() => {
+    loadBooks();
+  }, []);
+
+  const loadBooks = async () => {
+    try {
+      setLoading(true);
+      const catalogBooks = await databaseService.getCatalogBooks();
+      setBooks(catalogBooks);
+    } catch (error) {
+      console.error('Error loading books:', error);
+      showNotification({
+        type: 'error',
+        title: 'Error',
+        message: 'Gagal memuat daftar buku'
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const filteredBooks = books.filter(book => {
     const matchesSearch = book.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
                          book.author.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         book.callNumber.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesStatus = filterStatus === 'Semua' || book.status === filterStatus;
+                         (book.isbn && book.isbn.toLowerCase().includes(searchQuery.toLowerCase()));
+    const matchesStatus = filterStatus === 'all' || book.status === filterStatus;
     return matchesSearch && matchesStatus;
   });
 
-  const handleEdit = (book: BookData) => {
-    setEditingId(book.id);
-    setEditData({ ...book });
+  // Handle select all functionality
+  const handleSelectAll = () => {
+    if (selectAll) {
+      setSelectedBooks([]);
+    } else {
+      setSelectedBooks(filteredBooks.map(book => book.id));
+    }
+    setSelectAll(!selectAll);
   };
 
-  const handleSave = () => {
+  const handleSelectBook = (bookId: string) => {
+    if (selectedBooks.includes(bookId)) {
+      setSelectedBooks(selectedBooks.filter(id => id !== bookId));
+    } else {
+      setSelectedBooks([...selectedBooks, bookId]);
+    }
+  };
+
+  const handleEdit = (book: CatalogBook) => {
+    setEditData({ ...book });
+    setShowEditModal(true);
+  };
+
+  const handleSave = async () => {
     if (editData) {
-      setBooks(books.map(book => book.id === editData.id ? editData : book));
-      setEditingId(null);
-      setEditData(null);
+      try {
+        const success = await databaseService.updateCatalogBook(editData.id, editData);
+        if (success) {
+          await loadBooks();
+          setShowEditModal(false);
+          setEditData(null);
+          showNotification({
+            type: 'success',
+            title: 'Berhasil',
+            message: 'Data buku berhasil diperbarui'
+          });
+          if (onBookUpdated) onBookUpdated();
+        }
+      } catch (error) {
+        console.error('Error updating book:', error);
+        showNotification({
+          type: 'error',
+          title: 'Error',
+          message: 'Gagal memperbarui data buku'
+        });
+      }
     }
   };
 
   const handleCancel = () => {
-    setEditingId(null);
+    setShowEditModal(false);
     setEditData(null);
   };
 
-  const handleDelete = (id: number) => {
+  const handleDelete = async (id: string) => {
     if (confirm('Apakah Anda yakin ingin menghapus buku ini?')) {
-      setBooks(books.filter(book => book.id !== id));
+      try {
+        const success = await databaseService.deleteCatalogBook(id);
+        if (success) {
+          await loadBooks();
+          showNotification({
+            type: 'success',
+            title: 'Berhasil',
+            message: 'Buku berhasil dihapus'
+          });
+          if (onBookUpdated) onBookUpdated();
+        }
+      } catch (error) {
+        console.error('Error deleting book:', error);
+        showNotification({
+          type: 'error',
+          title: 'Error',
+          message: 'Gagal menghapus buku'
+        });
+      }
     }
   };
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'Tersedia': return 'text-green-700 bg-green-100';
-      case 'Dipinjam': return 'text-blue-700 bg-blue-100';
-      case 'Perawatan': return 'text-orange-700 bg-orange-100';
-      case 'Hilang': return 'text-red-700 bg-red-100';
+      case 'available': return 'text-green-700 bg-green-100';
+      case 'borrowed': return 'text-blue-700 bg-blue-100';
+      case 'reserved': return 'text-yellow-700 bg-yellow-100';
+      case 'damaged': return 'text-orange-700 bg-orange-100';
+      case 'lost': return 'text-red-700 bg-red-100';
       default: return 'text-gray-700 bg-gray-100';
     }
   };
 
-  const getConditionColor = (condition: string) => {
-    switch (condition) {
-      case 'Sangat Baik': return 'text-green-700 bg-green-100';
-      case 'Baik': return 'text-blue-700 bg-blue-100';
-      case 'Cukup': return 'text-yellow-700 bg-yellow-100';
-      case 'Rusak Ringan': return 'text-orange-700 bg-orange-100';
-      case 'Rusak Berat': return 'text-red-700 bg-red-100';
-      default: return 'text-gray-700 bg-gray-100';
+  const getStatusLabel = (status: string) => {
+    switch (status) {
+      case 'available': return 'Tersedia';
+      case 'borrowed': return 'Dipinjam';
+      case 'reserved': return 'Direservasi';
+      case 'damaged': return 'Rusak';
+      case 'lost': return 'Hilang';
+      default: return status;
     }
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+      </div>
+    );
+  }
 
   return (
     <div className="bg-white rounded-xl shadow-lg">
@@ -117,7 +215,7 @@ function BookListTable({ books, setBooks }: BookListTableProps) {
               className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             >
               {statusOptions.map(status => (
-                <option key={status} value={status}>{status}</option>
+                <option key={status.value} value={status.value}>{status.label}</option>
               ))}
             </select>
           </div>
@@ -133,13 +231,20 @@ function BookListTable({ books, setBooks }: BookListTableProps) {
         <table className="w-full">
           <thead className="bg-gray-50">
             <tr>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <input
+                  type="checkbox"
+                  checked={selectAll}
+                  onChange={handleSelectAll}
+                  className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                />
+              </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Buku</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Pengarang</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Publikasi</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Klasifikasi</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Lokasi</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Kondisi</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Aksi</th>
             </tr>
           </thead>
@@ -147,196 +252,90 @@ function BookListTable({ books, setBooks }: BookListTableProps) {
             {filteredBooks.map((book) => (
               <tr key={book.id} className="hover:bg-gray-50">
                 <td className="px-6 py-4">
-                  {editingId === book.id ? (
-                    <div className="space-y-2">
-                      <input
-                        type="text"
-                        value={editData?.title || ''}
-                        onChange={(e) => setEditData(prev => prev ? {...prev, title: e.target.value} : null)}
-                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500"
-                      />
-                      <input
-                        type="text"
-                        value={editData?.isbn || ''}
-                        onChange={(e) => setEditData(prev => prev ? {...prev, isbn: e.target.value} : null)}
-                        className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-500"
-                        placeholder="ISBN"
-                      />
+                  <input
+                    type="checkbox"
+                    checked={selectedBooks.includes(book.id)}
+                    onChange={() => handleSelectBook(book.id)}
+                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                  />
+                </td>
+                <td className="px-6 py-4">
+                  <div className="flex items-start space-x-3">
+                    <div className="w-12 h-16 bg-gray-200 rounded flex-shrink-0 flex items-center justify-center">
+                      {book.cover_image_url || book.cover ? (
+                        <img 
+                          src={book.cover_image_url || book.cover} 
+                          alt={book.title} 
+                          className="w-full h-full object-cover rounded"
+                        />
+                      ) : (
+                        <Book className="w-6 h-6 text-gray-400" />
+                      )}
                     </div>
-                  ) : (
-                    <div>
+                    <div className="flex-1 min-w-0">
                       <div className="text-sm font-medium text-gray-900 line-clamp-2">{book.title}</div>
-                      <div className="text-xs text-gray-500">ISBN: {book.isbn}</div>
-                      <div className="text-xs text-gray-500">{book.pages} hal</div>
+                      {book.isbn && <div className="text-xs text-gray-500">ISBN: {book.isbn}</div>}
+                      {book.pages && <div className="text-xs text-gray-500">{book.pages} hal</div>}
                     </div>
-                  )}
+                  </div>
                 </td>
                 
                 <td className="px-6 py-4">
-                  {editingId === book.id ? (
-                    <input
-                      type="text"
-                      value={editData?.author || ''}
-                      onChange={(e) => setEditData(prev => prev ? {...prev, author: e.target.value} : null)}
-                      className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500"
-                    />
-                  ) : (
-                    <div className="text-sm text-gray-900">{book.author}</div>
-                  )}
+                  <div className="text-sm text-gray-900">{book.author}</div>
                 </td>
                 
                 <td className="px-6 py-4">
-                  {editingId === book.id ? (
-                    <div className="space-y-2">
-                      <input
-                        type="text"
-                        value={editData?.publisher || ''}
-                        onChange={(e) => setEditData(prev => prev ? {...prev, publisher: e.target.value} : null)}
-                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500"
-                        placeholder="Penerbit"
-                      />
-                      <input
-                        type="text"
-                        value={editData?.year || ''}
-                        onChange={(e) => setEditData(prev => prev ? {...prev, year: e.target.value} : null)}
-                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500"
-                        placeholder="Tahun"
-                      />
-                    </div>
-                  ) : (
-                    <div>
-                      <div className="text-sm text-gray-900">{book.publisher}</div>
-                      <div className="text-xs text-gray-500">{book.publicationYear}</div>
-                    </div>
-                  )}
+                  <div>
+                    <div className="text-sm text-gray-900">{book.publisher}</div>
+                    <div className="text-xs text-gray-500">{book.publication_year}</div>
+                  </div>
                 </td>
                 
                 <td className="px-6 py-4">
-                  {editingId === book.id ? (
-                    <div className="space-y-2">
-                      <input
-                        type="text"
-                        value={editData?.callNumber || ''}
-                        onChange={(e) => setEditData(prev => prev ? {...prev, callNumber: e.target.value} : null)}
-                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500"
-                        placeholder="No. Panggil"
-                      />
-                      <input
-                        type="text"
-                        value={editData?.deweyNumber || ''}
-                        onChange={(e) => setEditData(prev => prev ? {...prev, deweyNumber: e.target.value} : null)}
-                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500"
-                        placeholder="Dewey"
-                      />
-                    </div>
-                  ) : (
-                    <div>
-                      <div className="text-sm font-mono text-blue-600">{book.callNumber}</div>
-                      <div className="text-xs text-gray-500">Dewey: {book.deweyNumber}</div>
-                    </div>
-                  )}
+                  <div>
+                    <div className="text-sm text-gray-900">{book.category}</div>
+                    {book.subcategory && <div className="text-xs text-gray-500">{book.subcategory}</div>}
+                  </div>
                 </td>
                 
                 <td className="px-6 py-4">
-                  {editingId === book.id ? (
-                    <input
-                      type="text"
-                      value={editData?.location || ''}
-                      onChange={(e) => setEditData(prev => prev ? {...prev, location: e.target.value} : null)}
-                      className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500"
-                    />
-                  ) : (
-                    <div>
-                      <div className="flex items-center text-sm text-gray-900">
-                        <MapPin className="w-4 h-4 mr-1 text-gray-400" />
-                        {book.location}
-                      </div>
-                      <div className="text-xs text-gray-500 mt-1">
-                        {getCategoryLabel(book.category)}
-                      </div>
+                  <div>
+                    <div className="flex items-center text-sm text-gray-900">
+                      <MapPin className="w-4 h-4 mr-1 text-gray-400" />
+                      {book.location}
                     </div>
-                  )}
+                  </div>
                 </td>
                 
                 <td className="px-6 py-4">
-                  {editingId === book.id ? (
-                    <select
-                      value={editData?.status || ''}
-                      onChange={(e) => setEditData(prev => prev ? {...prev, status: e.target.value as any} : null)}
-                      className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500"
+                  <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(book.status)}`}>
+                    {getStatusLabel(book.status)}
+                  </span>
+                </td>
+                
+                <td className="px-6 py-4">
+                  <div className="flex items-center space-x-2">
+                    <button
+                      onClick={() => handleEdit(book)}
+                      className="p-1 text-blue-600 hover:text-blue-800"
+                      title="Edit"
                     >
-                      <option value="Tersedia">Tersedia</option>
-                      <option value="Dipinjam">Dipinjam</option>
-                      <option value="Perawatan">Perawatan</option>
-                      <option value="Hilang">Hilang</option>
-                    </select>
-                  ) : (
-                    <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(book.status)}`}>
-                      {book.status}
-                    </span>
-                  )}
-                </td>
-                
-                <td className="px-6 py-4">
-                  {editingId === book.id ? (
-                    <select
-                      value={editData?.condition || ''}
-                      onChange={(e) => setEditData(prev => prev ? {...prev, condition: e.target.value} : null)}
-                      className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500"
+                      <Edit className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => handleDelete(book.id)}
+                      className="p-1 text-red-600 hover:text-red-800"
+                      title="Hapus"
                     >
-                      {conditionOptions.map(condition => (
-                        <option key={condition} value={condition}>{condition}</option>
-                      ))}
-                    </select>
-                  ) : (
-                    <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getConditionColor(book.condition)}`}>
-                      {book.condition}
-                    </span>
-                  )}
-                </td>
-                
-                <td className="px-6 py-4">
-                  {editingId === book.id ? (
-                    <div className="flex items-center space-x-2">
-                      <button
-                        onClick={handleSave}
-                        className="p-1 text-green-600 hover:text-green-800"
-                        title="Simpan"
-                      >
-                        <Save className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={handleCancel}
-                        className="p-1 text-gray-600 hover:text-gray-800"
-                        title="Batal"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="flex items-center space-x-2">
-                      <button
-                        onClick={() => handleEdit(book)}
-                        className="p-1 text-blue-600 hover:text-blue-800"
-                        title="Edit"
-                      >
-                        <Edit className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => handleDelete(book.id)}
-                        className="p-1 text-red-600 hover:text-red-800"
-                        title="Hapus"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                      <button
-                        className="p-1 text-gray-600 hover:text-gray-800"
-                        title="Lihat Detail"
-                      >
-                        <Eye className="w-4 h-4" />
-                      </button>
-                    </div>
-                  )}
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                    <button
+                      className="p-1 text-gray-600 hover:text-gray-800"
+                      title="Lihat Detail"
+                    >
+                      <Eye className="w-4 h-4" />
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -362,6 +361,229 @@ function BookListTable({ books, setBooks }: BookListTableProps) {
           </div>
         </div>
       </div>
+
+      {/* Edit Modal */}
+      {showEditModal && editData && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold">Edit Buku</h3>
+              <button
+                onClick={handleCancel}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <form onSubmit={(e) => { e.preventDefault(); handleSave(); }} className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Judul Buku *
+                  </label>
+                  <input
+                    type="text"
+                    value={editData.title}
+                    onChange={(e) => setEditData(prev => prev ? {...prev, title: e.target.value} : null)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    required
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Pengarang *
+                  </label>
+                  <input
+                    type="text"
+                    value={editData.author}
+                    onChange={(e) => setEditData(prev => prev ? {...prev, author: e.target.value} : null)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Penerbit
+                  </label>
+                  <input
+                    type="text"
+                    value={editData.publisher || ''}
+                    onChange={(e) => setEditData(prev => prev ? {...prev, publisher: e.target.value} : null)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Tahun Terbit
+                  </label>
+                  <input
+                    type="number"
+                    value={editData.publication_year || ''}
+                    onChange={(e) => setEditData(prev => prev ? {...prev, publication_year: parseInt(e.target.value) || undefined} : null)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    ISBN
+                  </label>
+                  <input
+                    type="text"
+                    value={editData.isbn || ''}
+                    onChange={(e) => setEditData(prev => prev ? {...prev, isbn: e.target.value} : null)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Kategori
+                  </label>
+                  <input
+                    type="text"
+                    value={editData.category || ''}
+                    onChange={(e) => setEditData(prev => prev ? {...prev, category: e.target.value} : null)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Subkategori
+                  </label>
+                  <input
+                    type="text"
+                    value={editData.subcategory || ''}
+                    onChange={(e) => setEditData(prev => prev ? {...prev, subcategory: e.target.value} : null)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Bahasa
+                  </label>
+                  <input
+                    type="text"
+                    value={editData.language || ''}
+                    onChange={(e) => setEditData(prev => prev ? {...prev, language: e.target.value} : null)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Jumlah Halaman
+                  </label>
+                  <input
+                    type="number"
+                    value={editData.pages || ''}
+                    onChange={(e) => setEditData(prev => prev ? {...prev, pages: parseInt(e.target.value) || undefined} : null)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Status
+                  </label>
+                  <select
+                    value={editData.status}
+                    onChange={(e) => setEditData(prev => prev ? {...prev, status: e.target.value as any} : null)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="available">Tersedia</option>
+                    <option value="borrowed">Dipinjam</option>
+                    <option value="reserved">Direservasi</option>
+                    <option value="damaged">Rusak</option>
+                    <option value="lost">Hilang</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Lokasi
+                  </label>
+                  <input
+                    type="text"
+                    value={editData.location || ''}
+                    onChange={(e) => setEditData(prev => prev ? {...prev, location: e.target.value} : null)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Harga (Rp)
+                  </label>
+                  <input
+                    type="number"
+                    value={editData.price || ''}
+                    onChange={(e) => setEditData(prev => prev ? {...prev, price: parseFloat(e.target.value) || undefined} : null)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Deskripsi
+                </label>
+                <textarea
+                  value={editData.description || ''}
+                  onChange={(e) => setEditData(prev => prev ? {...prev, description: e.target.value} : null)}
+                  rows={4}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Catatan
+                </label>
+                <textarea
+                  value={editData.notes || ''}
+                  onChange={(e) => setEditData(prev => prev ? {...prev, notes: e.target.value} : null)}
+                  rows={3}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+
+              <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200">
+                <button
+                  type="button"
+                  onClick={handleCancel}
+                  className="px-4 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  <Save className="w-4 h-4" />
+                  <span>Simpan Perubahan</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
