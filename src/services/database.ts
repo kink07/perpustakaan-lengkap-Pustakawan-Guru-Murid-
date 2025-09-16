@@ -1134,7 +1134,7 @@ export const databaseService = {
           console.error('This indicates that the foreign key constraint in the database still references the wrong table');
           console.error('Please check your Supabase database schema and update foreign key constraints');
           return null;
-        } else if (error.code === '23505' || error.status === 409) {
+        } else if (error.code === '23505') {
           console.error('Duplicate entry - favorite already exists');
           // Coba ambil data yang sudah ada
           const { data: existingData } = await supabase
@@ -1714,7 +1714,7 @@ export const databaseService = {
           console.error('This indicates that the foreign key constraint in the database still references the wrong table');
           console.error('Please check your Supabase database schema and update foreign key constraints');
           return null;
-        } else if (error.code === '23505' || error.status === 409) {
+        } else if (error.code === '23505') {
           console.error('Duplicate entry - bookmark already exists');
           // Coba ambil data yang sudah ada
           const { data: existingData } = await supabase
@@ -1944,6 +1944,25 @@ export const databaseService = {
     return data;
   },
 
+  async getCatalogBookByBarcode(barcode: string): Promise<CatalogBook | null> {
+    const { data, error } = await supabase
+      .from('catalog_books')
+      .select('*')
+      .eq('barcode', barcode)
+      .single();
+    
+    if (error) {
+      // If no record found, that's fine - barcode is available
+      if (error.code === 'PGRST116') {
+        return null;
+      }
+      console.error('Error fetching catalog book by barcode:', error);
+      return null;
+    }
+    
+    return data;
+  },
+
   async createCatalogBook(bookData: Partial<CatalogBook>): Promise<CatalogBook | null> {
     const { data, error } = await supabase
       .from('catalog_books')
@@ -2123,34 +2142,1210 @@ export const databaseService = {
   },
 
   async generateBarcode(): Promise<string> {
-    // Generate barcode dengan format: LIB + timestamp + random 4 digit
-    const timestamp = Date.now().toString();
-    const random = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
-    return `LIB${timestamp}${random}`;
+    // Generate barcode dengan format yang kompatibel dengan scanner fisik
+    // Format: LIB + 8 digit angka (total 11 karakter) - optimal untuk scanner
+    const random = Math.floor(Math.random() * 100000000).toString().padStart(8, '0');
+    const barcode = `LIB${random}`;
+    
+    // Validasi panjang barcode untuk scanner fisik (optimal 8-15 karakter)
+    if (barcode.length < 8 || barcode.length > 15) {
+      console.warn('Barcode length may not be optimal for physical scanners');
+    }
+    
+    return barcode;
+  },
+
+  // Validasi barcode untuk memastikan kompatibilitas dengan scanner fisik
+  validateBarcode(barcode: string): boolean {
+    // Panjang optimal untuk scanner fisik: 8-15 karakter
+    if (!barcode || barcode.length < 8 || barcode.length > 15) {
+      return false;
+    }
+    
+    // Cek apakah barcode hanya mengandung karakter alfanumerik (kompatibel dengan scanner)
+    const validChars = /^[A-Za-z0-9]+$/;
+    return validChars.test(barcode);
+  },
+
+  // Fungsi untuk memperbaiki barcode yang tidak kompatibel dengan scanner
+  async fixIncompatibleBarcodes(): Promise<{ fixed: number; total: number }> {
+    try {
+      // Ambil semua label dengan barcode yang tidak kompatibel
+      const { data: labels, error } = await supabase
+        .from('book_labels')
+        .select('id, barcode')
+        .not('barcode', 'is', null);
+      
+      if (error) {
+        console.error('Error fetching labels for barcode fix:', error);
+        return { fixed: 0, total: 0 };
+      }
+      
+      let fixedCount = 0;
+      const totalCount = labels.length;
+      
+      for (const label of labels) {
+        if (!this.validateBarcode(label.barcode)) {
+          // Generate barcode baru yang kompatibel
+          const newBarcode = await this.generateBarcode();
+          
+          // Update barcode di database
+          const { error: updateError } = await supabase
+            .from('book_labels')
+            .update({ barcode: newBarcode })
+            .eq('id', label.id);
+          
+          if (!updateError) {
+            fixedCount++;
+            console.log(`Fixed barcode for label ${label.id}: ${label.barcode} -> ${newBarcode}`);
+          } else {
+            console.error(`Error updating barcode for label ${label.id}:`, updateError);
+          }
+        }
+      }
+      
+      return { fixed: fixedCount, total: totalCount };
+    } catch (error) {
+      console.error('Error fixing incompatible barcodes:', error);
+      return { fixed: 0, total: 0 };
+    }
   },
 
   async printBookLabel(labelId: string): Promise<boolean> {
-    // Get current print count first
+    try {
+      console.log('Starting print for label ID:', labelId);
+      
+      // Get label data with book information
+      const { data: label, error: fetchError } = await supabase
+        .from('book_labels')
+        .select(`
+          *,
+          book:book_id (
+            title,
+            author,
+            callNumber,
+            publication_year,
+            barcode
+          )
+        `)
+        .eq('id', labelId)
+        .single();
+
+      console.log('Fetched label data:', label);
+      console.log('Fetch error:', fetchError);
+
+      if (fetchError) {
+        console.error('Error fetching label data:', fetchError);
+        alert('Error: Gagal mengambil data label dari database. Error: ' + fetchError.message);
+        return false;
+      }
+
+      // Validasi barcode sebelum mencetak
+      if (!this.validateBarcode(label.barcode)) {
+        console.error('Invalid barcode format:', label.barcode);
+        alert('Error: Format barcode tidak valid untuk scanner. Barcode: ' + label.barcode);
+        return false;
+      }
+
+      if (!label) {
+        console.error('No label data found');
+        alert('Error: Label tidak ditemukan di database.');
+        return false;
+      }
+
+      // Validate label data
+      if (!label.barcode) {
+        console.error('Label missing barcode:', label);
+        alert('Error: Label tidak memiliki barcode yang valid.');
+        return false;
+      }
+
+      // Generate print content
+      console.log('Generating print content...');
+      const printContent = this.generateLabelPrintContent(label);
+      console.log('Print content generated, length:', printContent.length);
+      
+      // Validate print content
+      if (!printContent || printContent.length < 100) {
+        console.error('Print content is empty or too short:', printContent);
+        alert('Error: Konten print kosong atau tidak valid. Periksa console untuk detail.');
+        return false;
+      }
+      
+      // Open print dialog
+      const printWindow = window.open('', '_blank');
+      if (!printWindow) {
+        console.error('Failed to open print window');
+        alert('Error: Tidak dapat membuka jendela print. Pastikan popup blocker dinonaktifkan.');
+        return false;
+      }
+
+      console.log('Print window opened, writing content...');
+      printWindow.document.write(printContent);
+      printWindow.document.close();
+      
+      // Wait for content to load before printing
+      setTimeout(() => {
+        console.log('Content written, focusing window...');
+        printWindow.focus();
+        printWindow.print();
+        printWindow.close();
+      }, 1000);
+
+      // Update print count in database
+      const { error: updateError } = await supabase
+        .from('book_labels')
+        .update({
+          print_count: (label.print_count || 0) + 1,
+          last_printed_at: new Date().toISOString()
+        })
+        .eq('id', labelId);
+      
+      if (updateError) {
+        console.error('Error updating print count:', updateError);
+        return false;
+      }
+      
+      return true;
+    } catch (error) {
+      console.error('Error printing label:', error);
+      return false;
+    }
+  },
+
+  // Generate HTML content for printing
+  generateLabelPrintContent(label: any): string {
+    console.log('=== generateLabelPrintContent START ===');
+    console.log('Input label:', label);
+    
+    // Ensure we have valid label data
+    if (!label) {
+      console.error('No label data provided');
+      return this.generateErrorPrintContent('Data label tidak tersedia');
+    }
+
+    if (!label.barcode) {
+      console.error('Label missing barcode:', label);
+      return this.generateErrorPrintContent('Barcode tidak tersedia');
+    }
+
+    const book = label.book;
+    const libraryName = 'Perpustakaan SDN Pejaten Timur 11 Pagi';
+    
+    // Create fallback data if book data is missing
+    const validBook = book || {
+      title: 'Buku Tanpa Judul',
+      author: 'Penulis Tidak Diketahui',
+      callNumber: '000.00 UNK',
+      publication_year: new Date().getFullYear()
+    };
+
+    // Ensure all required fields have fallback values
+    const safeBook = {
+      title: validBook.title || 'Buku Tanpa Judul',
+      author: validBook.author || 'Penulis Tidak Diketahui',
+      callNumber: validBook.callNumber || '000.00 UNK',
+      publication_year: validBook.publication_year || new Date().getFullYear()
+    };
+
+    const safeLabel = {
+      id: label.id || 'unknown',
+      barcode: label.barcode || 'NO_BARCODE',
+      label_size: label.label_size || 'medium'
+    };
+
+    console.log('Using safe book data:', safeBook);
+    console.log('Using safe label data:', safeLabel);
+
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Label Buku - ${safeBook.title}</title>
+        <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+        <style>
+          @page {
+            size: A4 portrait;
+            margin: 2mm;
+          }
+          
+          @media print {
+            body { 
+              margin: 0; 
+              padding: 0; 
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
+            }
+            .label { 
+              page-break-inside: avoid;
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
+              height: 33mm;
+            }
+            .barcode-svg {
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
+              image-rendering: -webkit-optimize-contrast;
+              image-rendering: crisp-edges;
+              image-rendering: pixelated;
+            }
+          }
+          
+          body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 1mm;
+            background: white;
+            min-height: 100vh;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+          
+          .label {
+            width: 65mm;
+            height: 35mm;
+            border: 1px solid black;
+            margin: 1px;
+            display: inline-block;
+            vertical-align: top;
+            position: relative;
+            box-sizing: border-box;
+            font-size: 8px;
+            overflow: hidden;
+          }
+          
+          .divider {
+            position: absolute;
+            left: 50%;
+            top: 0;
+            bottom: 0;
+            width: 1px;
+            background: black;
+            transform: translateX(-50%);
+          }
+          
+          .left-column {
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 50%;
+            padding: 1mm;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            gap: 1mm;
+          }
+          
+          .right-column {
+            position: absolute;
+            right: 0;
+            top: 0;
+            bottom: 0;
+            width: 25%;
+            padding: 1mm;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            gap: 1mm;
+          }
+          
+          .title {
+            font-weight: bold;
+            font-size: 11px;
+            text-align: center;
+            line-height: 1.0;
+            max-height: 3mm;
+            overflow: hidden;
+            flex-shrink: 0;
+            margin: 0;
+          }
+          
+          .barcode-container {
+            text-align: center;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 1mm;
+            max-width: 100%;
+            overflow: hidden;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+          
+          .barcode-svg {
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+            image-rendering: -webkit-optimize-contrast;
+            image-rendering: crisp-edges;
+            max-width: 100%;
+            height: auto;
+          }
+          
+          .barcode {
+            background: white;
+            display: inline-block;
+            max-width: 100%;
+            max-height: 100%;
+            overflow: hidden;
+            box-sizing: border-box;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+            width: 100%;
+          }
+          
+          .barcode-svg {
+            display: block;
+            margin: 0 auto;
+            image-rendering: -webkit-optimize-contrast;
+            image-rendering: crisp-edges;
+            image-rendering: pixelated;
+            max-width: 100%;
+            height: auto;
+          }
+          
+          .barcode-number {
+            font-family: monospace;
+            font-size: 11px;
+            margin: 0;
+            text-align: center;
+            flex-shrink: 0;
+          }
+          
+          .library-name {
+            font-size: 14px;
+            line-height: 1.0;
+            text-align: center;
+            flex-shrink: 0;
+            margin: 0;
+          }
+          
+          .call-number {
+            font-family: monospace;
+            font-size: 14px;
+            line-height: 1.0;
+            text-align: center;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+          }
+          
+          .year {
+            font-size: 14px;
+            text-align: center;
+            flex-shrink: 0;
+            margin: 0;
+          }
+          
+          .barcode-svg {
+            display: block;
+            margin: 0 auto;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="label">
+          <div class="divider"></div>
+          
+          <!-- Kolom Kiri -->
+          <div class="left-column">
+            <div class="title">${safeBook.title}</div>
+            
+            <div class="barcode-container">
+              <div class="barcode">
+                <svg class="barcode-svg" id="barcode-${safeLabel.id}"></svg>
+              </div>
+            </div>
+            
+            <div class="barcode-number">${safeLabel.barcode}</div>
+          </div>
+          
+          <!-- Kolom Kanan -->
+          <div class="right-column">
+            <div class="library-name">${libraryName}</div>
+            
+            <div class="call-number">
+              ${safeBook.callNumber.split(' ').map((word: string) => `<div>${word}</div>`).join('')}
+            </div>
+            
+            <div class="year">${safeBook.publication_year}</div>
+          </div>
+        </div>
+        
+        <script>
+          // Generate industrial barcode using JsBarcode
+          function generateBarcode() {
+            try {
+              if (typeof JsBarcode !== 'undefined') {
+                JsBarcode("#barcode-${safeLabel.id}", "${safeLabel.barcode}", {
+                  format: "CODE128",
+                  width: 1,
+                  height: 50,
+                  displayValue: true,
+                  margin: 3,
+                  background: "white",
+                  lineColor: "black",
+                  fontSize: 8,
+                  textAlign: "center",
+                  textPosition: "bottom",
+                  textMargin: 2,
+                  valid: function(valid) {
+                    if (valid) {
+                      console.log('Barcode generated successfully for scanner');
+                    } else {
+                      console.error('Invalid barcode data for scanner');
+                    }
+                  },
+                  quietZone: 3,
+                  flat: true,
+                  font: "monospace"
+                });
+              } else {
+                // Fallback: show barcode number if JsBarcode fails to load
+                document.getElementById("barcode-${safeLabel.id}").innerHTML = '<text x="50%" y="50%" text-anchor="middle" font-family="monospace" font-size="12" fill="black">${safeLabel.barcode}</text>';
+              }
+            } catch (error) {
+              console.error('Error generating barcode:', error);
+              // Fallback: show barcode number
+              document.getElementById("barcode-${label.id}").innerHTML = '<text x="50%" y="50%" text-anchor="middle" font-family="monospace" font-size="12" fill="black">${label.barcode}</text>';
+            }
+          }
+          
+          // Try to generate barcode when JsBarcode loads
+          if (typeof JsBarcode !== 'undefined') {
+            generateBarcode();
+          } else {
+            // Wait for script to load
+            setTimeout(generateBarcode, 100);
+          }
+        </script>
+      </body>
+      </html>
+    `;
+    
+    console.log('=== generateLabelPrintContent END ===');
+    console.log('Generated HTML length:', htmlContent.length);
+    console.log('HTML preview:', htmlContent.substring(0, 200) + '...');
+    
+    return htmlContent;
+  },
+
+  // Generate error print content
+  generateErrorPrintContent(errorMessage: string): string {
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Error - Label Buku</title>
+        <style>
+          body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 1mm;
+            background: white;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+          }
+          .error-container {
+            text-align: center;
+            padding: 1mm;
+            border: 2px solid red;
+            border-radius: 10px;
+            background-color: #ffe6e6;
+            max-width: 400px;
+          }
+          .error-title {
+            color: red;
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 10px;
+          }
+          .error-message {
+            color: #333;
+            font-size: 16px;
+            margin-bottom: 20px;
+          }
+          .error-info {
+            color: #666;
+            font-size: 14px;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="error-container">
+          <div class="error-title">⚠️ Error</div>
+          <div class="error-message">${errorMessage}</div>
+          <div class="error-info">
+            Silakan periksa data label dan coba lagi.
+            <br>
+            Jika masalah berlanjut, hubungi administrator.
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+  },
+
+  // Print multiple labels
+  async printMultipleLabels(labelIds: string[]): Promise<boolean> {
+    try {
+      console.log('=== printMultipleLabels START ===');
+      console.log('Label IDs to print:', labelIds);
+      
+      // Get all labels data
+      const { data: labels, error: fetchError } = await supabase
+        .from('book_labels')
+        .select(`
+          *,
+          book:book_id (
+            title,
+            author,
+            callNumber,
+            publication_year,
+            barcode
+          )
+        `)
+        .in('id', labelIds);
+
+      console.log('Fetched labels data:', labels);
+      console.log('Fetch error:', fetchError);
+
+      if (fetchError) {
+        console.error('Error fetching labels data:', fetchError);
+        alert('Error: Gagal mengambil data labels dari database. Error: ' + fetchError.message);
+        return false;
+      }
+
+      // Validasi semua barcode sebelum mencetak
+      const invalidBarcodes = labels.filter(label => !this.validateBarcode(label.barcode));
+      if (invalidBarcodes.length > 0) {
+        console.error('Invalid barcode formats found:', invalidBarcodes.map(l => l.barcode));
+        alert(`Error: ${invalidBarcodes.length} barcode memiliki format yang tidak valid untuk scanner.`);
+        return false;
+      }
+
+      if (!labels || labels.length === 0) {
+        console.error('No labels data found');
+        alert('Error: Tidak ada data labels yang ditemukan.');
+        return false;
+      }
+
+      // Generate print content for multiple labels
+      console.log('Generating print content...');
+      const printContent = this.generateMultipleLabelsPrintContent(labels);
+      console.log('Print content generated, length:', printContent.length);
+      console.log('Print content preview:', printContent.substring(0, 500) + '...');
+      
+      // Validate print content
+      if (!printContent || printContent.length < 100) {
+        console.error('Print content is empty or too short:', printContent);
+        alert('Error: Konten print kosong atau tidak valid. Periksa console untuk detail.');
+        return false;
+      }
+      
+      // Open print dialog
+      const printWindow = window.open('', '_blank');
+      if (!printWindow) {
+        console.error('Failed to open print window');
+        alert('Error: Tidak dapat membuka jendela print. Pastikan popup blocker dinonaktifkan.');
+        return false;
+      }
+
+      console.log('Print window opened, writing content...');
+      printWindow.document.write(printContent);
+      printWindow.document.close();
+      
+      // Wait for content to load before printing
+      setTimeout(() => {
+        console.log('Content written, focusing window...');
+        printWindow.focus();
+        printWindow.print();
+        printWindow.close();
+      }, 1000);
+
+      // Update print counts in database
+      for (const labelId of labelIds) {
     const { data: currentLabel } = await supabase
       .from('book_labels')
       .select('print_count')
       .eq('id', labelId)
       .single();
 
-    const { error } = await supabase
+        await supabase
       .from('book_labels')
       .update({
         print_count: (currentLabel?.print_count || 0) + 1,
         last_printed_at: new Date().toISOString()
       })
       .eq('id', labelId);
+      }
     
-    if (error) {
-      console.error('Error updating print count:', error);
+      return true;
+    } catch (error) {
+      console.error('Error printing multiple labels:', error);
       return false;
     }
+  },
+
+  // Generate HTML content for printing multiple labels
+  generateMultipleLabelsPrintContent(labels: any[]): string {
+    console.log('=== generateMultipleLabelsPrintContent START ===');
+    console.log('Input labels:', labels);
     
-    return true;
+    const libraryName = 'Perpustakaan SDN Pejaten Timur 11 Pagi';
+    
+    const labelHtml = labels.map(label => {
+      const book = label.book;
+      
+      // Create safe fallback data
+      const safeBook = {
+        title: book?.title || 'Buku Tanpa Judul',
+        author: book?.author || 'Penulis Tidak Diketahui',
+        callNumber: book?.callNumber || '000.00 UNK',
+        publication_year: book?.publication_year || new Date().getFullYear()
+      };
+      
+      const safeLabel = {
+        id: label.id || 'unknown',
+        barcode: label.barcode || 'NO_BARCODE'
+      };
+      
+      return `
+        <div class="label">
+          <div class="divider"></div>
+          
+          <!-- Kolom Kiri -->
+          <div class="left-column">
+            <div class="title">${safeBook.title}</div>
+            
+            <div class="barcode-container">
+              <div class="barcode">
+                <svg class="barcode-svg" id="barcode-${safeLabel.id}"></svg>
+              </div>
+            </div>
+            
+            <div class="barcode-number">${safeLabel.barcode}</div>
+          </div>
+          
+          <!-- Kolom Kanan -->
+          <div class="right-column">
+            <div class="library-name">${libraryName}</div>
+            
+            <div class="call-number">
+              ${safeBook.callNumber.split(' ').map((word: string) => `<div>${word}</div>`).join('')}
+            </div>
+            
+            <div class="year">${safeBook.publication_year}</div>
+          </div>
+        </div>
+      `;
+    }).join('');
+    
+    const scriptHtml = labels.map(label => {
+      const safeLabel = {
+        id: label.id || 'unknown',
+        barcode: label.barcode || 'NO_BARCODE'
+      };
+      
+      return `
+      JsBarcode("#barcode-${safeLabel.id}", "${safeLabel.barcode}", {
+        format: "CODE128",
+        width: 1,
+        height: 50,
+        displayValue: true,
+        margin: 3,
+        background: "white",
+        lineColor: "black",
+        fontSize: 8,
+        textAlign: "center",
+        textPosition: "bottom",
+        textMargin: 2,
+        valid: function(valid) {
+          if (valid) {
+            console.log('Barcode generated successfully for scanner');
+          } else {
+            console.error('Invalid barcode data for scanner');
+          }
+        },
+        quietZone: 3,
+        flat: true,
+        font: "monospace"
+      });
+    `;
+    }).join('\n');
+    
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Label Buku - ${labels.length} Label</title>
+        <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+        <style>
+          @page {
+            size: A4 portrait;
+            margin: 2mm;
+          }
+          
+          @media print {
+            body { 
+              margin: 0; 
+              padding: 0; 
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
+            }
+            .label { 
+              page-break-inside: avoid;
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
+              height: 33mm;
+            }
+            .barcode-svg {
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
+              image-rendering: -webkit-optimize-contrast;
+              image-rendering: crisp-edges;
+              image-rendering: pixelated;
+            }
+          }
+          
+          body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 1mm;
+            background: white;
+            min-height: 100vh;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+          
+          .label {
+            width: 70mm;
+            height: 35mm;
+            border: 1px solid black;
+            margin: 1px;
+            display: inline-block;
+            vertical-align: top;
+            position: relative;
+            box-sizing: border-box;
+            font-size: 8px;
+            page-break-inside: avoid;
+          }
+          
+          .divider {
+            position: absolute;
+            left: 50%;
+            top: 0;
+            bottom: 0;
+            width: 1px;
+            background: black;
+            transform: translateX(-50%);
+          }
+          
+          .left-column {
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 50%;
+            padding: 1mm;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            gap: 1mm;
+          }
+          
+          .right-column {
+            position: absolute;
+            right: 0;
+            top: 0;
+            bottom: 0;
+            width: 50%;
+            padding: 1mm;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            gap: 1mm;
+          }
+          
+          .title {
+            font-weight: bold;
+            font-size: 11px;
+            text-align: center;
+            line-height: 1.0;
+            max-height: 3mm;
+            overflow: hidden;
+            flex-shrink: 0;
+            margin: 0;
+          }
+          
+          .barcode-container {
+            text-align: center;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 1mm;
+            max-width: 100%;
+            overflow: hidden;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+          
+          .barcode-svg {
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+            image-rendering: -webkit-optimize-contrast;
+            image-rendering: crisp-edges;
+            max-width: 100%;
+            height: auto;
+          }
+          
+          .barcode {
+            background: white;
+            display: inline-block;
+            max-width: 100%;
+            max-height: 100%;
+            overflow: hidden;
+            box-sizing: border-box;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+            width: 100%;
+          }
+          
+          .barcode-svg {
+            display: block;
+            margin: 0 auto;
+            image-rendering: -webkit-optimize-contrast;
+            image-rendering: crisp-edges;
+            image-rendering: pixelated;
+            max-width: 100%;
+            height: auto;
+          }
+          
+          .barcode-number {
+            font-family: monospace;
+            font-size: 11px;
+            margin: 0;
+            text-align: center;
+            flex-shrink: 0;
+          }
+          
+          .library-name {
+            font-size: 14px;
+            line-height: 1.0;
+            text-align: center;
+            flex-shrink: 0;
+            margin: 0;
+          }
+          
+          .call-number {
+            font-family: monospace;
+            font-size: 14px;
+            line-height: 1.0;
+            text-align: center;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+          }
+          
+          .year {
+            font-size: 14px;
+            text-align: center;
+            flex-shrink: 0;
+            margin: 0;
+          }
+          
+          .barcode-svg {
+            display: block;
+            margin: 0 auto;
+          }
+        </style>
+      </head>
+      <body>
+        ${labelHtml}
+        
+        <script>
+          function generateAllBarcodes() {
+            try {
+              if (typeof JsBarcode !== 'undefined') {
+                ${scriptHtml}
+              } else {
+                // Fallback: show barcode numbers if JsBarcode fails to load
+                ${labels.map(label => `
+                  document.getElementById("barcode-${label.id}").innerHTML = '<text x="50%" y="50%" text-anchor="middle" font-family="monospace" font-size="12" fill="black">${label.barcode}</text>';
+                `).join('')}
+              }
+            } catch (error) {
+              console.error('Error generating barcodes:', error);
+              // Fallback: show barcode numbers
+              ${labels.map(label => `
+                document.getElementById("barcode-${label.id}").innerHTML = '<text x="50%" y="50%" text-anchor="middle" font-family="monospace" font-size="12" fill="black">${label.barcode}</text>';
+              `).join('')}
+            }
+          }
+          
+          // Try to generate barcodes when JsBarcode loads
+          if (typeof JsBarcode !== 'undefined') {
+            generateAllBarcodes();
+          } else {
+            // Wait for script to load
+            setTimeout(generateAllBarcodes, 100);
+          }
+        </script>
+      </body>
+      </html>
+    `;
+    
+    console.log('=== generateMultipleLabelsPrintContent END ===');
+    console.log('Label HTML length:', labelHtml.length);
+    console.log('Script HTML length:', scriptHtml.length);
+    
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Label Buku - ${labels.length} Label</title>
+        <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+        <style>
+          @page {
+            size: A4 portrait;
+            margin: 2mm;
+          }
+          
+          @media print {
+            body { 
+              margin: 0; 
+              padding: 0; 
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
+            }
+            .label { 
+              page-break-inside: avoid;
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
+              height: 33mm;
+            }
+            .barcode-svg {
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
+              image-rendering: -webkit-optimize-contrast;
+              image-rendering: crisp-edges;
+              image-rendering: pixelated;
+            }
+          }
+          
+          body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 1mm;
+            background: white;
+            min-height: 100vh;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+          
+          .label {
+            width: 70mm;
+            height: 35mm;
+            border: 1px solid black;
+            margin: 1px;
+            display: inline-block;
+            vertical-align: top;
+            position: relative;
+            box-sizing: border-box;
+            font-size: 8px;
+            overflow: hidden;
+          }
+          
+          .divider {
+            position: absolute;
+            left: 50%;
+            top: 0;
+            bottom: 0;
+            width: 1px;
+            background: black;
+            transform: translateX(-50%);
+          }
+          
+          .left-column {
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 50%;
+            padding: 1mm;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            gap: 1mm;
+          }
+          
+          .right-column {
+            position: absolute;
+            right: 0;
+            top: 0;
+            bottom: 0;
+            width: 50%;
+            padding: 1mm;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            gap: 1mm;
+          }
+          
+          .title {
+            font-weight: bold;
+            font-size: 11px;
+            text-align: center;
+            line-height: 1.0;
+            max-height: 3mm;
+            overflow: hidden;
+            flex-shrink: 0;
+            margin: 0;
+          }
+          
+          .barcode-container {
+            text-align: center;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 1mm;
+            max-width: 100%;
+            overflow: hidden;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+          
+          .barcode-svg {
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+            image-rendering: -webkit-optimize-contrast;
+            image-rendering: crisp-edges;
+            max-width: 100%;
+            height: auto;
+          }
+          
+          .barcode {
+            background: white;
+            display: inline-block;
+            max-width: 100%;
+            max-height: 100%;
+            overflow: hidden;
+            box-sizing: border-box;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+            width: 100%;
+          }
+          
+          .barcode-svg {
+            display: block;
+            margin: 0 auto;
+            image-rendering: -webkit-optimize-contrast;
+            image-rendering: crisp-edges;
+            image-rendering: pixelated;
+            max-width: 100%;
+            height: auto;
+          }
+          
+          .barcode-number {
+            font-family: monospace;
+            font-size: 11px;
+            margin: 0;
+            text-align: center;
+            flex-shrink: 0;
+            line-height: 1;
+          }
+          
+          .library-name {
+            font-size: 14px;
+            line-height: 1.0;
+            text-align: center;
+            flex-shrink: 0;
+            margin: 0;
+          }
+          
+          .call-number {
+            font-family: monospace;
+            font-size: 14px;
+            line-height: 1.0;
+            text-align: center;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+          }
+          
+          .year {
+            font-size: 14px;
+            text-align: center;
+            flex-shrink: 0;
+            margin: 0;
+          }
+          
+          .barcode-svg {
+            display: block;
+            margin: 0 auto;
+          }
+        </style>
+      </head>
+      <body>
+        ${labelHtml}
+        
+        <script>
+          // Generate industrial barcodes using JsBarcode
+          function generateBarcodes() {
+            try {
+              if (typeof JsBarcode !== 'undefined') {
+                ${scriptHtml}
+              } else {
+                console.error('JsBarcode not loaded');
+              }
+            } catch (error) {
+              console.error('Error generating barcodes:', error);
+            }
+          }
+          
+          // Try to generate barcodes when JsBarcode loads
+          if (typeof JsBarcode !== 'undefined') {
+            generateBarcodes();
+          } else {
+            // Wait for script to load
+            setTimeout(generateBarcodes, 100);
+          }
+        </script>
+      </body>
+      </html>
+    `;
   },
 
   // IMPORT/EXPORT FUNCTIONS

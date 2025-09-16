@@ -1,16 +1,16 @@
 import { useState, useEffect } from 'react';
 import { 
   Search, 
-  Grid, 
-  List, 
   X, 
-  Trash2, 
   Loader2,
   Printer,
   Settings,
   QrCode,
-  Barcode,
-  Copy
+  Eye,
+  CheckSquare,
+  Square,
+  Book,
+  BookOpen
 } from 'lucide-react';
 import { databaseService } from '../../services/database';
 import { BookLabel, CatalogBook } from '../../types/database';
@@ -22,24 +22,24 @@ interface LabelBarcodeFormProps {
 
 function LabelBarcodeForm({ user, onBookAdded }: LabelBarcodeFormProps) {
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterTemplate, setFilterTemplate] = useState('all');
-  const [filterSize, setFilterSize] = useState('all');
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [loading, setLoading] = useState(true);
   const [bookLabels, setBookLabels] = useState<BookLabel[]>([]);
   const [catalogBooks, setCatalogBooks] = useState<CatalogBook[]>([]);
-  const [showSettings, setShowSettings] = useState(false);
   const [showGenerateModal, setShowGenerateModal] = useState(false);
+  const [showPreviewModal, setShowPreviewModal] = useState(false);
+  const [previewLabel, setPreviewLabel] = useState<BookLabel | null>(null);
   const [selectedBooks, setSelectedBooks] = useState<string[]>([]);
+  const [selectedLabels, setSelectedLabels] = useState<string[]>([]);
   const [labelSettings, setLabelSettings] = useState({
     labelSize: 'medium' as 'small' | 'medium' | 'large',
     barcodeSize: 'medium' as 'small' | 'medium' | 'large',
     labelTemplate: 'standard',
     includeTitle: true,
-    includeAuthor: true,
-    includeISBN: true,
-    includeLocation: true,
-    includeBarcode: true
+    includeAuthor: false,
+    includeCallNumber: true,
+    includeBarcode: true,
+    includeYear: true,
+    libraryName: 'Perpustakaan SDN Pejaten Timur 11 Pagi'
   });
 
   // Load book labels and catalog books from database
@@ -134,15 +134,103 @@ function LabelBarcodeForm({ user, onBookAdded }: LabelBarcodeFormProps) {
     }
   };
 
+  // Preview label
+  const handlePreviewLabel = (label: BookLabel) => {
+    setPreviewLabel(label);
+    setShowPreviewModal(true);
+  };
 
-  // Delete label
-  const handleDeleteLabel = async (labelId: string) => {
-    if (!confirm('Apakah Anda yakin ingin menghapus label ini?')) return;
+  // Load JsBarcode script when preview modal opens
+  useEffect(() => {
+    if (showPreviewModal && previewLabel) {
+      const script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js';
+      script.onload = () => {
+        if (typeof (window as any).JsBarcode !== 'undefined') {
+          try {
+            (window as any).JsBarcode(`#preview-barcode-${previewLabel.barcode}`, previewLabel.barcode, {
+              format: "CODE128",
+              width: 1,
+              height: 50,
+              displayValue: true,
+              margin: 3,
+              background: "white",
+              lineColor: "black",
+              fontSize: 8,
+              textAlign: "center",
+              textPosition: "bottom",
+              textMargin: 2,
+              valid: function(valid: boolean) {
+                if (valid) {
+                  console.log('Preview barcode generated successfully for scanner');
+                } else {
+                  console.error('Invalid preview barcode data for scanner');
+                }
+              },
+              quietZone: 3,
+              flat: true,
+              font: "monospace"
+            });
+          } catch (error) {
+            console.error('Error generating preview barcode:', error);
+          }
+        }
+      };
+      document.head.appendChild(script);
 
+      return () => {
+        document.head.removeChild(script);
+      };
+    }
+  }, [showPreviewModal, previewLabel]);
+
+  // Filter labels based on search
+  const filteredLabels = bookLabels.filter(label => {
+    const book = label.book;
+    if (!book) return false;
+    
+    const matchesSearch = book.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                         book.author.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                         label.barcode.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                         book.publication_year?.toString().includes(searchQuery) ||
+                         book.callNumber?.toLowerCase().includes(searchQuery.toLowerCase());
+    return matchesSearch;
+  });
+
+  // Select/Deselect all labels
+  const handleSelectAllLabels = () => {
+    if (selectedLabels.length === filteredLabels.length) {
+      setSelectedLabels([]);
+    } else {
+      setSelectedLabels(filteredLabels.map(label => label.id));
+    }
+  };
+
+  // Select/Deselect individual label
+  const handleSelectLabel = (labelId: string) => {
+    setSelectedLabels(prev => 
+      prev.includes(labelId) 
+        ? prev.filter(id => id !== labelId)
+        : [...prev, labelId]
+    );
+  };
+
+  // Print selected labels
+  const handlePrintSelectedLabels = async () => {
     try {
-      const success = await databaseService.deleteBookLabel(labelId);
+      setLoading(true);
+      
+      const success = await databaseService.printMultipleLabels(selectedLabels);
+      
       if (success) {
-        setBookLabels(prev => prev.filter(label => label.id !== labelId));
+        // Update print counts in local state
+        setBookLabels(prev => prev.map(label => 
+          selectedLabels.includes(label.id) 
+            ? { ...label, print_count: (label.print_count || 0) + 1, last_printed_at: new Date().toISOString() }
+            : label
+        ));
+        
+        setSelectedLabels([]);
         
         // Trigger refresh of books in other components
         if (onBookAdded) {
@@ -150,36 +238,52 @@ function LabelBarcodeForm({ user, onBookAdded }: LabelBarcodeFormProps) {
         }
       }
     } catch (error) {
-      console.error('Error deleting label:', error);
+      console.error('Error printing selected labels:', error);
+    } finally {
+      setLoading(false);
     }
   };
 
-  // Copy barcode to clipboard
-  const handleCopyBarcode = async (barcode: string) => {
+  // Fix incompatible barcodes
+  const handleFixBarcodes = async () => {
     try {
-      await navigator.clipboard.writeText(barcode);
-      // Show success message (you can implement a toast notification here)
+      setLoading(true);
+      
+      const result = await databaseService.fixIncompatibleBarcodes();
+      
+      if (result.fixed > 0) {
+        alert(`Berhasil memperbaiki ${result.fixed} dari ${result.total} barcode yang tidak kompatibel dengan scanner.`);
+        // Reload labels to show updated barcodes
+        await loadBookLabels();
+        
+        // Trigger refresh of books in other components
+        if (onBookAdded) {
+          onBookAdded();
+        }
+      } else {
+        alert('Semua barcode sudah kompatibel dengan scanner atau tidak ada barcode yang perlu diperbaiki.');
+      }
     } catch (error) {
-      console.error('Error copying barcode:', error);
+      console.error('Error fixing barcodes:', error);
+      alert('Terjadi kesalahan saat memperbaiki barcode.');
+    } finally {
+      setLoading(false);
     }
   };
 
-  // Filter labels based on search and filters
-  const filteredLabels = bookLabels.filter(label => {
-    const book = label.book;
-    if (!book) return false;
+  // Generate industrial barcode SVG for display
+  const generateBarcodeSVG = (barcode: string, size: 'small' | 'medium' | 'large' = 'medium') => {
+    const width = size === 'small' ? 200 : size === 'medium' ? 300 : 400;
+    const height = size === 'small' ? 40 : size === 'medium' ? 60 : 80;
     
-    const matchesSearch = book.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         book.author.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         label.barcode.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesTemplate = filterTemplate === 'all' || label.label_template === filterTemplate;
-    const matchesSize = filterSize === 'all' || label.label_size === filterSize;
-    return matchesSearch && matchesTemplate && matchesSize;
-  });
-
-  // Get unique templates and sizes for filter
-  const templates = [...new Set(bookLabels.map(label => label.label_template).filter(Boolean))];
-  const sizes = [...new Set(bookLabels.map(label => label.label_size).filter(Boolean))];
+    // Use a placeholder that will be replaced by JsBarcode
+    return `
+      <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg" id="preview-barcode-${barcode}">
+        <rect x="0" y="0" width="${width}" height="${height}" fill="white" stroke="black" stroke-width="1"/>
+        <text x="${width/2}" y="${height/2}" text-anchor="middle" font-family="monospace" font-size="12" fill="black">Loading...</text>
+      </svg>
+    `;
+  };
 
   // Get books without labels
   const booksWithoutLabels = catalogBooks.filter(book => 
@@ -198,266 +302,114 @@ function LabelBarcodeForm({ user, onBookAdded }: LabelBarcodeFormProps) {
     <div className="p-6">
       {/* Header */}
       <div className="mb-6">
-        <h2 className="text-2xl font-bold text-gray-900 mb-2">Label & Barcode</h2>
-        <p className="text-gray-600">Kelola label dan barcode untuk buku perpustakaan</p>
-      </div>
-
-      {/* Search and Filters */}
-      <div className="mb-6 space-y-4">
-        <div className="flex flex-col sm:flex-row gap-4">
-          <div className="flex-1">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-              <input
-                type="text"
-                placeholder="Cari judul, penulis, atau barcode..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-            </div>
-          </div>
-          <div className="flex gap-2">
-            <select
-              value={filterTemplate}
-              onChange={(e) => setFilterTemplate(e.target.value)}
-              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            >
-              <option value="all">Semua Template</option>
-              {templates.map(template => (
-                <option key={template} value={template}>{template}</option>
-              ))}
-            </select>
-            <select
-              value={filterSize}
-              onChange={(e) => setFilterSize(e.target.value)}
-              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            >
-              <option value="all">Semua Ukuran</option>
-              {sizes.map(size => (
-                <option key={size} value={size}>{size}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        <div className="flex justify-between items-center">
-          <div className="flex items-center space-x-2">
-            <button
-              onClick={() => setViewMode('grid')}
-              className={`p-2 rounded-lg ${viewMode === 'grid' ? 'bg-blue-100 text-blue-600' : 'text-gray-400 hover:text-gray-600'}`}
-            >
-              <Grid className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => setViewMode('list')}
-              className={`p-2 rounded-lg ${viewMode === 'list' ? 'bg-blue-100 text-blue-600' : 'text-gray-400 hover:text-gray-600'}`}
-            >
-              <List className="w-4 h-4" />
-            </button>
+        <div className="flex justify-between items-start">
+          <div>
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">Cetak Label & Barcode</h2>
+            <p className="text-gray-600">Generate dan cetak label untuk koleksi buku</p>
           </div>
           
-          <div className="flex items-center space-x-2">
-            {selectedBooks.length > 0 && (
-              <div className="flex items-center space-x-2 mr-4">
-                <span className="text-sm text-gray-600">{selectedBooks.length} dipilih</span>
-                <button
-                  onClick={() => setShowGenerateModal(true)}
-                  className="px-3 py-1 bg-blue-100 text-blue-600 rounded-lg hover:bg-blue-200 transition-colors"
-                >
-                  Generate Label
-                </button>
-              </div>
-            )}
-            
+          <div className="flex items-center space-x-3">
             <button
-              onClick={() => setShowSettings(true)}
-              className="flex items-center space-x-2 bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 transition-colors"
+              onClick={handleFixBarcodes}
+              className="flex items-center space-x-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors"
+              title="Perbaiki barcode yang tidak kompatibel dengan scanner"
             >
               <Settings className="w-4 h-4" />
-              <span>Settings</span>
+              <span>Perbaiki Barcode</span>
             </button>
+            
+            {filteredLabels.length > 0 && (
+                <button
+                onClick={() => handlePreviewLabel(filteredLabels[0])}
+                className="flex items-center space-x-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+                >
+                <Eye className="w-4 h-4" />
+                <span>Preview</span>
+                </button>
+            )}
+            
+            {selectedLabels.length > 0 && (
+            <button
+                onClick={handlePrintSelectedLabels}
+                className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            >
+                <Printer className="w-4 h-4" />
+                <span>Cetak</span>
+            </button>
+            )}
           </div>
         </div>
       </div>
 
-      {/* Labels Grid/List */}
-      {filteredLabels.length === 0 ? (
-        <div className="text-center py-12">
-          <QrCode className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 mb-2">Tidak ada label</h3>
-          <p className="text-gray-500">Generate label untuk buku yang belum memiliki label</p>
+      {/* Summary Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-600">Total Buku</p>
+              <p className="text-2xl font-bold text-gray-900">{catalogBooks.length}</p>
         </div>
-      ) : (
-        <div className={viewMode === 'grid' ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6' : 'space-y-4'}>
-          {filteredLabels.map((label) => (
-            <div key={label.id} className={`bg-white rounded-lg shadow-md overflow-hidden ${viewMode === 'list' ? 'flex' : ''}`}>
-              {viewMode === 'grid' ? (
-                <>
-                  <div className="h-48 bg-gray-100 flex items-center justify-center p-4">
-                    <div className="text-center">
-                      <Barcode className="w-12 h-12 text-gray-400 mx-auto mb-2" />
-                      <div className="text-xs font-mono bg-white p-2 rounded border">
-                        {label.barcode}
+            <Book className="w-8 h-8 text-blue-600" />
                       </div>
                     </div>
-                  </div>
-                  <div className="p-4">
-                    <h3 className="font-semibold text-lg text-gray-900 mb-2 line-clamp-2">
-                      {label.book?.title || 'Unknown Book'}
-                    </h3>
-                    <p className="text-gray-600 mb-2">oleh {label.book?.author || 'Unknown Author'}</p>
-                    <div className="flex items-center justify-between mb-3">
-                      <span className={`px-2 py-1 text-xs rounded-full ${
-                        label.label_size === 'small' ? 'bg-blue-100 text-blue-800' :
-                        label.label_size === 'medium' ? 'bg-green-100 text-green-800' :
-                        'bg-purple-100 text-purple-800'
-                      }`}>
-                        {label.label_size} label
-                      </span>
-                      <span className="text-xs text-gray-500">
-                        Print: {label.print_count || 0}x
-                      </span>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <button
-                        onClick={() => handlePrintLabel(label.id)}
-                        className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                        title="Print Label"
-                      >
-                        <Printer className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => handleCopyBarcode(label.barcode)}
-                        className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors"
-                        title="Copy Barcode"
-                      >
-                        <Copy className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => handleDeleteLabel(label.id)}
-                        className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                        title="Delete Label"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="w-24 h-24 bg-gray-100 flex items-center justify-center flex-shrink-0">
-                    <Barcode className="w-8 h-8 text-gray-400" />
-                  </div>
-                  <div className="flex-1 p-4">
-                    <div className="flex justify-between items-start mb-2">
-                      <h3 className="font-semibold text-lg text-gray-900">
-                        {label.book?.title || 'Unknown Book'}
-                      </h3>
-                      <span className={`px-2 py-1 text-xs rounded-full ${
-                        label.label_size === 'small' ? 'bg-blue-100 text-blue-800' :
-                        label.label_size === 'medium' ? 'bg-green-100 text-green-800' :
-                        'bg-purple-100 text-purple-800'
-                      }`}>
-                        {label.label_size} label
-                      </span>
-                    </div>
-                    <p className="text-gray-600 mb-2">oleh {label.book?.author || 'Unknown Author'}</p>
-                    <div className="flex items-center justify-between">
-                      <div className="text-sm text-gray-500">
-                        <span className="font-mono bg-gray-100 px-2 py-1 rounded">
-                          {label.barcode}
-                        </span>
-                        <span className="ml-4">Print: {label.print_count || 0}x</span>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <button
-                          onClick={() => handlePrintLabel(label.id)}
-                          className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                          title="Print Label"
-                        >
-                          <Printer className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => handleCopyBarcode(label.barcode)}
-                          className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors"
-                          title="Copy Barcode"
-                        >
-                          <Copy className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteLabel(label.id)}
-                          className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                          title="Delete Label"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
 
-      {/* Settings Modal */}
-      {showSettings && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-semibold">Pengaturan Label & Barcode</h3>
-              <button
-                onClick={() => setShowSettings(false)}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <X className="w-5 h-5" />
-              </button>
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-600">Dipilih</p>
+              <p className="text-2xl font-bold text-gray-900">{selectedLabels.length}</p>
+                  </div>
+            <CheckSquare className="w-8 h-8 text-green-600" />
+                    </div>
+                  </div>
+
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+                    <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-600">Dengan Barcode</p>
+              <p className="text-2xl font-bold text-gray-900">{bookLabels.length}</p>
+                      </div>
+            <QrCode className="w-8 h-8 text-purple-600" />
+                      </div>
+                    </div>
+
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-600">Barcode Valid</p>
+              <p className="text-2xl font-bold text-gray-900">{bookLabels.filter(label => databaseService.validateBarcode(label.barcode)).length}</p>
+            </div>
+            <CheckSquare className="w-8 h-8 text-green-600" />
+          </div>
+        </div>
+      </div>
+
+      {/* Main Content - 2 Column Layout */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Left Column - Settings */}
+        <div className="lg:col-span-1">
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <div className="flex items-center space-x-2 mb-4">
+              <Settings className="w-5 h-5 text-gray-600" />
+              <h3 className="text-lg font-semibold text-gray-900">Pengaturan Label</h3>
             </div>
             
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Ukuran Label</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Ukuran Label</label>
                 <select
                   value={labelSettings.labelSize}
                   onChange={(e) => setLabelSettings(prev => ({ ...prev, labelSize: e.target.value as any }))}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 >
-                  <option value="small">Small (50x30mm)</option>
-                  <option value="medium">Medium (70x40mm)</option>
-                  <option value="large">Large (100x60mm)</option>
+                  <option value="small">Kecil (5x3 cm)</option>
+                  <option value="medium">Sedang (7x4 cm)</option>
+                  <option value="large">Besar (10x6 cm)</option>
                 </select>
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Ukuran Barcode</label>
-                <select
-                  value={labelSettings.barcodeSize}
-                  onChange={(e) => setLabelSettings(prev => ({ ...prev, barcodeSize: e.target.value as any }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                >
-                  <option value="small">Small</option>
-                  <option value="medium">Medium</option>
-                  <option value="large">Large</option>
-                </select>
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Template Label</label>
-                <select
-                  value={labelSettings.labelTemplate}
-                  onChange={(e) => setLabelSettings(prev => ({ ...prev, labelTemplate: e.target.value }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                >
-                  <option value="standard">Standard</option>
-                  <option value="compact">Compact</option>
-                  <option value="detailed">Detailed</option>
-                </select>
-              </div>
-              
-              <div className="space-y-2">
-                <label className="block text-sm font-medium text-gray-700">Elemen Label</label>
+                <label className="block text-sm font-medium text-gray-700 mb-3">Informasi yang Disertakan</label>
                 <div className="space-y-2">
                   <label className="flex items-center">
                     <input
@@ -471,29 +423,11 @@ function LabelBarcodeForm({ user, onBookAdded }: LabelBarcodeFormProps) {
                   <label className="flex items-center">
                     <input
                       type="checkbox"
-                      checked={labelSettings.includeAuthor}
-                      onChange={(e) => setLabelSettings(prev => ({ ...prev, includeAuthor: e.target.checked }))}
+                      checked={labelSettings.includeCallNumber}
+                      onChange={(e) => setLabelSettings(prev => ({ ...prev, includeCallNumber: e.target.checked }))}
                       className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
                     />
-                    <span className="ml-2 text-sm text-gray-700">Penulis</span>
-                  </label>
-                  <label className="flex items-center">
-                    <input
-                      type="checkbox"
-                      checked={labelSettings.includeISBN}
-                      onChange={(e) => setLabelSettings(prev => ({ ...prev, includeISBN: e.target.checked }))}
-                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                    />
-                    <span className="ml-2 text-sm text-gray-700">ISBN</span>
-                  </label>
-                  <label className="flex items-center">
-                    <input
-                      type="checkbox"
-                      checked={labelSettings.includeLocation}
-                      onChange={(e) => setLabelSettings(prev => ({ ...prev, includeLocation: e.target.checked }))}
-                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                    />
-                    <span className="ml-2 text-sm text-gray-700">Lokasi</span>
+                    <span className="ml-2 text-sm text-gray-700">Call Number</span>
                   </label>
                   <label className="flex items-center">
                     <input
@@ -504,27 +438,166 @@ function LabelBarcodeForm({ user, onBookAdded }: LabelBarcodeFormProps) {
                     />
                     <span className="ml-2 text-sm text-gray-700">Barcode</span>
                   </label>
-                </div>
+                  <label className="flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={labelSettings.includeYear}
+                      onChange={(e) => setLabelSettings(prev => ({ ...prev, includeYear: e.target.checked }))}
+                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                    />
+                    <span className="ml-2 text-sm text-gray-700">Tahun Terbit</span>
+                  </label>
               </div>
             </div>
 
-            <div className="flex justify-end space-x-3 mt-6">
               <button
-                onClick={() => setShowSettings(false)}
-                className="px-4 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                onClick={handleSelectAllLabels}
+                className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
               >
-                Batal
-              </button>
-              <button
-                onClick={() => setShowSettings(false)}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-              >
-                Simpan
+                Pilih Semua
               </button>
             </div>
           </div>
         </div>
-      )}
+
+        {/* Right Column - Book List */}
+        <div className="lg:col-span-2">
+          {/* Search */}
+          <div className="mb-4">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+              <input
+                type="text"
+                placeholder="Cari berdasarkan judul, pengarang, tahun terbit, barcode..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+            </div>
+          </div>
+
+          {/* Book List Table */}
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gray-50 border-b border-gray-200">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <button
+                        onClick={handleSelectAllLabels}
+                        className="flex items-center space-x-2"
+                      >
+                        {selectedLabels.length === filteredLabels.length && filteredLabels.length > 0 ? (
+                          <CheckSquare className="w-4 h-4 text-blue-600" />
+                        ) : (
+                          <Square className="w-4 h-4 text-gray-400" />
+                        )}
+                      </button>
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      BUKU
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      TAHUN TERBIT
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      BARCODE
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      CALL NUMBER
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      KATEGORI
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      AKSI
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {filteredLabels.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
+                        <QrCode className="w-12 h-12 text-gray-300 mx-auto mb-2" />
+                        <p>Tidak ada label ditemukan</p>
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredLabels.map((label) => (
+                      <tr key={label.id} className={selectedLabels.includes(label.id) ? 'bg-blue-50' : 'hover:bg-gray-50'}>
+                        <td className="px-4 py-4 whitespace-nowrap">
+                          <button
+                            onClick={() => handleSelectLabel(label.id)}
+                            className="flex items-center"
+                          >
+                            {selectedLabels.includes(label.id) ? (
+                              <CheckSquare className="w-4 h-4 text-blue-600" />
+                            ) : (
+                              <Square className="w-4 h-4 text-gray-400" />
+                            )}
+                          </button>
+                        </td>
+                        <td className="px-4 py-4 whitespace-nowrap">
+                          <div>
+                            <div className="text-sm font-medium text-gray-900">
+                              {label.book?.title || 'Unknown Book'}
+                            </div>
+                            <div className="text-sm text-gray-500">
+                              oleh {label.book?.author || 'Unknown Author'}
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {label.book?.publication_year || '-'}
+                        </td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm font-mono text-gray-900">
+                          <div className="flex items-center space-x-2">
+                            <span className={databaseService.validateBarcode(label.barcode) ? 'text-green-600' : 'text-red-600'}>
+                              {label.barcode}
+                            </span>
+                            {!databaseService.validateBarcode(label.barcode) && (
+                              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                                Tidak Valid
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm font-mono text-gray-900">
+                          {label.book?.callNumber || '-'}
+                        </td>
+                        <td className="px-4 py-4 whitespace-nowrap">
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                            {label.book?.category || 'Umum'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm font-medium">
+                          <div className="flex items-center space-x-2">
+                            <button
+                              onClick={() => handlePreviewLabel(label)}
+                              className="text-purple-600 hover:text-purple-900"
+                              title="Preview Label"
+                            >
+                              <Eye className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => handlePrintLabel(label.id)}
+                              className="text-blue-600 hover:text-blue-900"
+                              title="Print Label"
+                            >
+                              <Printer className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
 
       {/* Generate Labels Modal */}
       {showGenerateModal && (
@@ -588,6 +661,158 @@ function LabelBarcodeForm({ user, onBookAdded }: LabelBarcodeFormProps) {
                 className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
               >
                 Generate {selectedBooks.length} Label
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Preview Label Modal */}
+      {showPreviewModal && previewLabel && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold">Preview Label & Barcode</h3>
+              <button
+                onClick={() => setShowPreviewModal(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="space-y-6">
+              {/* Label Preview */}
+              <div className="border-2 border-gray-300 rounded-lg p-4 bg-white">
+                <h4 className="text-sm font-medium text-gray-700 mb-3">Preview Label ({previewLabel.label_size})</h4>
+                
+                {/* Label sesuai gambar - Layout 2 kolom */}
+                <div className={`relative border border-black bg-white mx-auto ${labelSettings.labelSize === 'small' ? 'w-48 h-32' : labelSettings.labelSize === 'medium' ? 'w-64 h-40' : 'w-80 h-48'}`}>
+                  {/* Garis pembagi vertikal */}
+                  <div className="absolute left-1/2 top-0 bottom-0 w-px bg-black transform -translate-x-1/2"></div>
+                  
+                  {/* Kolom Kiri */}
+                  <div className="absolute left-0 top-0 bottom-0 w-1/2 p-2 flex flex-col items-center justify-center">
+                    {/* Judul */}
+                    <div className="text-center mb-2">
+                      <span className="text-xs font-bold">{previewLabel.book?.title || 'Judul Buku'}</span>
+                    </div>
+                    
+                    {/* Barcode */}
+                    <div className="flex justify-center mb-2">
+                      <div className="bg-white border border-black p-1">
+                        <div dangerouslySetInnerHTML={{ __html: generateBarcodeSVG(previewLabel.barcode, labelSettings.barcodeSize) }} />
+                      </div>
+                    </div>
+                    
+                    {/* No Barcode */}
+                    <div className="text-center">
+                      <span className="text-xs font-mono">{previewLabel.barcode}</span>
+                    </div>
+                  </div>
+                  
+                  {/* Kolom Kanan - Center aligned */}
+                  <div className="absolute right-0 top-0 bottom-0 w-1/2 p-2 flex flex-col justify-center items-center text-center">
+                    {/* Nama Perpustakaan */}
+                    <div className="mb-2">
+                      <div className="text-xs leading-tight">{labelSettings.libraryName}</div>
+                    </div>
+                    
+                    {/* Nomor Panggil */}
+                    <div className="mb-2">
+                      <div className="text-xs font-mono leading-tight text-center">
+                        {(previewLabel.book?.callNumber || '000.00 ABC a').split(' ').map((word, index) => (
+                          <div key={index}>{word}</div>
+                        ))}
+                      </div>
+                    </div>
+                    
+                    {/* Tahun Terbit */}
+                    <div>
+                      <div className="text-xs">{previewLabel.book?.publication_year || '2025'}</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Label Settings */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Ukuran Label</label>
+                  <select
+                    value={labelSettings.labelSize}
+                    onChange={(e) => setLabelSettings(prev => ({ ...prev, labelSize: e.target.value as any }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="small">Small (50x30mm)</option>
+                    <option value="medium">Medium (70x40mm)</option>
+                    <option value="large">Large (100x60mm)</option>
+                  </select>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Ukuran Barcode</label>
+                  <select
+                    value={labelSettings.barcodeSize}
+                    onChange={(e) => setLabelSettings(prev => ({ ...prev, barcodeSize: e.target.value as any }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="small">Small</option>
+                    <option value="medium">Medium</option>
+                    <option value="large">Large</option>
+                  </select>
+                </div>
+                
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Nama Perpustakaan</label>
+                  <input
+                    type="text"
+                    value={labelSettings.libraryName}
+                    onChange={(e) => setLabelSettings(prev => ({ ...prev, libraryName: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="Nama perpustakaan"
+                  />
+                </div>
+              </div>
+
+              {/* Book Information */}
+              <div className="bg-gray-50 rounded-lg p-4">
+                <h4 className="text-sm font-medium text-gray-700 mb-3">Informasi Buku</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="font-medium">Judul:</span> {previewLabel.book?.title || 'N/A'}
+                  </div>
+                  <div>
+                    <span className="font-medium">Pengarang:</span> {previewLabel.book?.author || 'N/A'}
+                  </div>
+                  <div>
+                    <span className="font-medium">Nomor Panggil:</span> {previewLabel.book?.callNumber || 'N/A'}
+                  </div>
+                  <div>
+                    <span className="font-medium">Tahun Terbit:</span> {previewLabel.book?.publication_year || 'N/A'}
+                  </div>
+                  <div>
+                    <span className="font-medium">Barcode:</span> {previewLabel.barcode}
+                  </div>
+                  <div>
+                    <span className="font-medium">Status:</span> {previewLabel.book?.status || 'available'}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end space-x-3 mt-6">
+              <button
+                onClick={() => setShowPreviewModal(false)}
+                className="px-4 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                Tutup
+              </button>
+              <button
+                onClick={() => handlePrintLabel(previewLabel.id)}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                Cetak Label
               </button>
             </div>
           </div>
