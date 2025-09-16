@@ -14,12 +14,14 @@ import {
 import { BookData } from '../types/book';
 import { DDC_CATEGORIES } from '../constants/ddcCategories';
 import { databaseService } from '../services/database';
-import { User as UserType } from '../types/database';
+import { User as UserType, CatalogBook } from '../types/database';
 import { useNotification } from '../contexts/NotificationContext';
+import CameraUploadModal from './CameraUploadModal';
 
 interface DescriptiveCatalogingFormProps {
   user: UserType;
   onBookAdded?: () => void;
+  editingBook?: any;
 }
 
 interface FormBookData extends Omit<BookData, 'id' | 'status' | 'cover' | 'digitalFiles'> {
@@ -31,12 +33,13 @@ interface FormBookData extends Omit<BookData, 'id' | 'status' | 'cover' | 'digit
   description?: string;
 }
 
-function DescriptiveCatalogingForm({ user, onBookAdded }: DescriptiveCatalogingFormProps) {
+function DescriptiveCatalogingForm({ user, onBookAdded, editingBook }: DescriptiveCatalogingFormProps) {
   const { showNotification } = useNotification();
   
   // Check if we're in edit mode
   const [isEditMode, setIsEditMode] = useState(false);
   const [editingBookId, setEditingBookId] = useState<string | null>(null);
+  const [showCameraModal, setShowCameraModal] = useState(false);
   
   const [bookData, setBookData] = useState<FormBookData>({
     title: '',
@@ -86,67 +89,61 @@ function DescriptiveCatalogingForm({ user, onBookAdded }: DescriptiveCatalogingF
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [dragOver, setDragOver] = useState(false);
 
-  // Check for editing book data on component mount
+  // Check for editing book data from props
   useEffect(() => {
-    const editingBookData = localStorage.getItem('editingBook');
-    if (editingBookData) {
-      try {
-        const book = JSON.parse(editingBookData);
-        setIsEditMode(true);
-        setEditingBookId(book.id);
-        
-        // Populate form with existing data
-        setBookData({
-          title: book.title || '',
-          subtitle: book.subtitle || '',
-          author: book.author || '',
-          coAuthor: book.coAuthor || '',
-          editor: book.editor || '',
-          translator: book.translator || '',
-          illustrator: book.illustrator || '',
-          category: book.category || '',
-          publisher: book.publisher || '',
-          publicationPlace: book.publicationPlace || '',
-          publicationYear: book.publicationYear || '',
-          edition: book.edition || '',
-          isbn: book.isbn || '',
-          issn: book.issn || '',
-          callNumber: book.callNumber || '',
-          deweyNumber: book.deweyNumber || '',
-          pages: book.pages || '',
-          dimensions: book.dimensions || '',
-          language: book.language || 'Indonesia',
-          series: book.series || '',
-          volume: book.volume || '',
-          notes: book.notes || '',
-          subjects: book.subjects || [],
-          physicalDescription: book.physicalDescription || '',
-          contentType: book.contentType || 'Teks',
-          mediaType: book.mediaType || 'Tanpa Mediasi',
-          carrierType: book.carrierType || 'Volume',
-          location: book.location || '',
-          copyNumber: parseInt(book.copyNumber) || 1,
-          barcode: book.barcode || '',
-          price: book.price || '',
-          source: book.source || '',
-          acquisitionDate: book.acquisitionDate || new Date().toISOString().split('T')[0],
-          condition: book.condition || 'Baik',
-          abstract: book.abstract || '',
-          coverImage: null,
-          digitalFiles: [],
-          cover: book.cover || '',
-          existingDigitalFiles: book.digitalFiles || [],
-          subcategory: book.subcategory || '',
-          description: book.description || ''
-        });
-        
-        // Clear localStorage
-        localStorage.removeItem('editingBook');
-      } catch (error) {
-        console.error('Error parsing editing book data:', error);
-      }
+    if (editingBook) {
+      setIsEditMode(true);
+      setEditingBookId(editingBook.id);
+      
+      // Populate form with existing data
+      setBookData({
+        title: editingBook.title || '',
+        subtitle: editingBook.subtitle || '',
+        author: editingBook.author || '',
+        coAuthor: editingBook.coAuthor || '',
+        editor: editingBook.editor || '',
+        translator: editingBook.translator || '',
+        illustrator: editingBook.illustrator || '',
+        category: editingBook.category || '',
+        publisher: editingBook.publisher || '',
+        publicationPlace: editingBook.publicationPlace || '',
+        publicationYear: editingBook.publication_year?.toString() || '',
+        edition: editingBook.edition || '',
+        isbn: editingBook.isbn || '',
+        issn: editingBook.issn || '',
+        callNumber: editingBook.callNumber || '',
+        deweyNumber: editingBook.deweyNumber || '',
+        pages: editingBook.pages?.toString() || '',
+        dimensions: editingBook.dimensions || '',
+        language: editingBook.language || 'Indonesia',
+        series: editingBook.series || '',
+        volume: editingBook.volume || '',
+        notes: editingBook.notes || '',
+        subjects: editingBook.subjects || [],
+        physicalDescription: editingBook.physicalDescription || '',
+        contentType: editingBook.contentType || 'Teks',
+        mediaType: editingBook.mediaType || 'Tanpa Mediasi',
+        carrierType: editingBook.carrierType || 'Volume',
+        location: editingBook.location || '',
+        copyNumber: editingBook.copyNumber || 1,
+        barcode: editingBook.barcode || '',
+        price: editingBook.price?.toString() || '',
+        source: editingBook.source || '',
+        acquisitionDate: editingBook.acquisition_date || new Date().toISOString().split('T')[0],
+        condition: editingBook.condition || 'Baik',
+        abstract: editingBook.abstract || '',
+        coverImage: null,
+        digitalFiles: [],
+        cover: editingBook.cover_image_url || editingBook.cover || '',
+        existingDigitalFiles: editingBook.digital_files || [],
+        subcategory: editingBook.subcategory || '',
+        description: editingBook.description || ''
+      });
+    } else {
+      setIsEditMode(false);
+      setEditingBookId(null);
     }
-  }, []);
+  }, [editingBook]);
 
   const handleInputChange = (field: keyof FormBookData, value: string | number) => {
     setBookData(prev => ({
@@ -214,10 +211,37 @@ function DescriptiveCatalogingForm({ user, onBookAdded }: DescriptiveCatalogingF
     }));
   };
 
+  const removeExistingDigitalFile = (index: number) => {
+    setBookData(prev => ({
+      ...prev,
+      existingDigitalFiles: prev.existingDigitalFiles?.filter((_, i) => i !== index) || []
+    }));
+  };
+
   const removeCoverImage = () => {
     setBookData(prev => ({
       ...prev,
       coverImage: null
+    }));
+  };
+
+  const handleCameraCapture = (file: File) => {
+    setBookData(prev => ({
+      ...prev,
+      coverImage: file
+    }));
+    setShowCameraModal(false);
+    showNotification({
+      type: 'success',
+      title: 'Berhasil',
+      message: 'Foto berhasil diambil dan diproses!'
+    });
+  };
+
+  const removeExistingCover = () => {
+    setBookData(prev => ({
+      ...prev,
+      cover: ''
     }));
   };
 
@@ -277,26 +301,70 @@ function DescriptiveCatalogingForm({ user, onBookAdded }: DescriptiveCatalogingF
     setIsSubmitting(true);
     
     try {
-      // Prepare data for database
-      const catalogData = {
+      // Check if barcode already exists (only for new books)
+      if (!isEditMode && bookData.barcode) {
+        const existingBook = await databaseService.getCatalogBookByBarcode(bookData.barcode);
+        if (existingBook) {
+          showNotification('Barcode sudah digunakan oleh buku lain. Silakan gunakan barcode yang berbeda.', 'error');
+          setIsSubmitting(false);
+          return;
+        }
+      }
+      // Prepare data for database - all form fields must be in database
+      const catalogData: Partial<CatalogBook> = {
         title: bookData.title,
-        author: bookData.author,
-        isbn: bookData.isbn || undefined,
-        publisher: bookData.publisher || undefined,
-        publication_year: bookData.publicationYear ? parseInt(bookData.publicationYear) : undefined,
-        category: bookData.category || undefined,
-        subcategory: bookData.subcategory || undefined,
+        subtitle: bookData.subtitle || '',
+        author: bookData.author || 'Tidak Diketahui',
+        coAuthor: bookData.coAuthor || '',
+        editor: bookData.editor || '',
+        translator: bookData.translator || '',
+        illustrator: bookData.illustrator || '',
+        category: bookData.category || '',
+        subcategory: bookData.subcategory || '',
+        publisher: bookData.publisher || '',
+        publicationPlace: bookData.publicationPlace || '',
+        publication_year: bookData.publicationYear ? parseInt(bookData.publicationYear) : null,
+        edition: bookData.edition && bookData.edition.trim() !== '' ? bookData.edition.trim() : null,
+        isbn: bookData.isbn && bookData.isbn.trim() !== '' ? bookData.isbn.trim() : null,
+        issn: bookData.issn && bookData.issn.trim() !== '' ? bookData.issn.trim() : null,
+        series: bookData.series || '',
+        volume: bookData.volume || '',
         language: bookData.language || 'Indonesia',
-        pages: bookData.pages ? parseInt(bookData.pages) : undefined,
-        description: bookData.description || undefined,
-        status: 'available' as const,
-        location: bookData.location || undefined,
-        acquisition_date: bookData.acquisitionDate || new Date().toISOString().split('T')[0],
+        pages: bookData.pages ? parseInt(bookData.pages) : null,
+        dimensions: bookData.dimensions || '',
+        abstract: bookData.abstract || '',
+        description: bookData.description || '',
+        subjects: bookData.subjects || [],
+        status: isEditMode ? editingBook?.status || 'available' : 'available' as const,
+        location: bookData.location || '',
+        copyNumber: bookData.copyNumber || 1,
+        barcode: bookData.barcode,
+        price: bookData.price ? parseFloat(bookData.price) : null,
+        source: bookData.source || '',
+        acquisition_date: bookData.acquisitionDate || null,
         acquisition_method: 'Kataloging Manual',
-        price: bookData.price ? parseFloat(bookData.price) : undefined,
-        notes: bookData.notes || undefined,
-        created_by: user.id
+        condition: bookData.condition || '',
+        physicalDescription: bookData.physicalDescription || '',
+        deweyNumber: bookData.deweyNumber || '',
+        callNumber: bookData.callNumber || '',
+        contentType: bookData.contentType || '',
+        mediaType: bookData.mediaType || '',
+        carrierType: bookData.carrierType || '',
+        notes: bookData.notes || ''
       };
+
+      // Remove undefined values to prevent database errors
+      Object.keys(catalogData).forEach(key => {
+        if (catalogData[key as keyof CatalogBook] === undefined) {
+          delete catalogData[key as keyof CatalogBook];
+        }
+      });
+
+
+      // Only add created_by for new books, not for updates
+      if (!isEditMode) {
+        catalogData.created_by = user.id;
+      }
 
       let result;
       
@@ -330,6 +398,10 @@ function DescriptiveCatalogingForm({ user, onBookAdded }: DescriptiveCatalogingF
           // Keep existing cover URL in edit mode
           coverUrl = bookData.cover;
           console.log('Keeping existing cover:', coverUrl);
+        } else if (isEditMode && !bookData.cover && !bookData.coverImage) {
+          // Cover was removed in edit mode
+          coverUrl = null;
+          console.log('Cover removed');
         }
 
         // Handle digital files
@@ -344,7 +416,10 @@ function DescriptiveCatalogingForm({ user, onBookAdded }: DescriptiveCatalogingF
               console.error('Error uploading digital file:', error);
             }
           }
-        } else if (isEditMode && bookData.existingDigitalFiles && bookData.existingDigitalFiles.length > 0) {
+        }
+        
+        // Handle existing digital files
+        if (isEditMode && bookData.existingDigitalFiles && bookData.existingDigitalFiles.length > 0) {
           // Keep existing digital files URLs in edit mode
           digitalFileUrls.push(...bookData.existingDigitalFiles);
           console.log('Keeping existing digital files:', digitalFileUrls);
@@ -352,11 +427,22 @@ function DescriptiveCatalogingForm({ user, onBookAdded }: DescriptiveCatalogingF
 
         // Update book with cover and digital files URLs
         const updateData: any = {};
-        if (coverUrl) updateData.cover_image_url = coverUrl;
-        if (digitalFileUrls.length > 0) updateData.digital_files = digitalFileUrls;
+        
+        // Handle cover update
+        if (coverUrl !== undefined) {
+          updateData.cover_image_url = coverUrl;
+        }
+        
+        // Handle digital files update
+        if (digitalFileUrls.length > 0) {
+          updateData.digital_files = digitalFileUrls;
+        } else if (isEditMode && bookData.existingDigitalFiles && bookData.existingDigitalFiles.length === 0) {
+          // All digital files were removed
+          updateData.digital_files = [];
+        }
         
         // Always update if we have any file data or if we're in edit mode
-        if (coverUrl || digitalFileUrls.length > 0 || isEditMode) {
+        if (Object.keys(updateData).length > 0 || isEditMode) {
           const bookId = isEditMode && editingBookId ? editingBookId : result.id;
           await databaseService.updateCatalogBook(bookId, updateData);
           console.log('Updated book with file data:', updateData);
@@ -528,7 +614,6 @@ function DescriptiveCatalogingForm({ user, onBookAdded }: DescriptiveCatalogingF
                   onChange={(e) => handleInputChange('author', e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   placeholder="Nama pengarang"
-                  required
                 />
               </div>
               
@@ -590,13 +675,12 @@ function DescriptiveCatalogingForm({ user, onBookAdded }: DescriptiveCatalogingF
               
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Kategori *
+                  Kategori
                 </label>
                 <select
                   value={bookData.category}
                   onChange={(e) => handleInputChange('category', e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  required
                 >
                   <option value="">Pilih Kategori</option>
                   {DDC_CATEGORIES.filter(cat => cat.value !== 'all').map(category => (
@@ -644,7 +728,6 @@ function DescriptiveCatalogingForm({ user, onBookAdded }: DescriptiveCatalogingF
                   onChange={(e) => handleInputChange('publisher', e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   placeholder="Nama penerbit"
-                  required
                 />
               </div>
               
@@ -675,7 +758,6 @@ function DescriptiveCatalogingForm({ user, onBookAdded }: DescriptiveCatalogingF
                   placeholder="2024"
                   min="1900"
                   max="2030"
-                  required
                 />
               </div>
               
@@ -1026,20 +1108,35 @@ function DescriptiveCatalogingForm({ user, onBookAdded }: DescriptiveCatalogingF
                       className="hidden"
                       id="cover-upload"
                     />
-                    <label htmlFor="cover-upload" className="cursor-pointer">
-                      <Camera className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                      <p className="text-sm text-gray-600 mb-2">Klik untuk upload cover buku</p>
-                      <p className="text-xs text-gray-500">PNG, JPG, GIF hingga 10MB</p>
-                    </label>
+                    <div className="space-y-4">
+                      <label htmlFor="cover-upload" className="cursor-pointer block">
+                        <Upload className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                        <p className="text-sm text-gray-600 mb-2">Klik untuk upload cover buku</p>
+                        <p className="text-xs text-gray-500">PNG, JPG, GIF hingga 10MB</p>
+                      </label>
+                      
+                      <div className="border-t border-gray-200 pt-4">
+                        <button
+                          type="button"
+                          onClick={() => setShowCameraModal(true)}
+                          className="flex items-center justify-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors mx-auto"
+                        >
+                          <Camera className="w-5 h-5" />
+                          <span>Ambil Foto dengan Kamera</span>
+                        </button>
+                        <p className="text-xs text-gray-500 mt-2">Foto akan otomatis di-crop dan dikompres HD</p>
+                      </div>
+                    </div>
                   </div>
                 </div>
                 
+                {/* New Cover Image */}
                 {bookData.coverImage && (
                   <div className="relative">
                     <img
                       src={URL.createObjectURL(bookData.coverImage)}
                       alt="Cover Preview"
-                      className="w-full h-48 object-cover rounded-lg border border-gray-200"
+                      className="w-full h-48 object-contain bg-gray-50 rounded-lg border border-gray-200"
                     />
                     <button
                       type="button"
@@ -1051,6 +1148,29 @@ function DescriptiveCatalogingForm({ user, onBookAdded }: DescriptiveCatalogingF
                     <div className="mt-2 text-sm text-gray-600">
                       <p className="font-medium">{bookData.coverImage.name}</p>
                       <p className="text-xs">{formatFileSize(bookData.coverImage.size)}</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Existing Cover Image */}
+                {!bookData.coverImage && bookData.cover && (
+                  <div className="relative">
+                    <img
+                      src={bookData.cover}
+                      alt="Existing Cover"
+                      className="w-full h-48 object-contain bg-gray-50 rounded-lg border border-gray-200"
+                    />
+                    <button
+                      type="button"
+                      onClick={removeExistingCover}
+                      className="absolute top-2 right-2 p-1 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors"
+                      title="Hapus cover"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                    <div className="mt-2 text-sm text-gray-600">
+                      <p className="font-medium text-green-600">Cover yang sudah ada</p>
+                      <p className="text-xs">Klik upload di atas untuk mengganti cover</p>
                     </div>
                   </div>
                 )}
@@ -1088,11 +1208,11 @@ function DescriptiveCatalogingForm({ user, onBookAdded }: DescriptiveCatalogingF
                 </label>
               </div>
 
-              {/* Digital Files List */}
+              {/* New Digital Files List */}
               {bookData.digitalFiles.length > 0 && (
                 <div className="mt-4 space-y-2">
                   <p className="text-sm font-medium text-gray-700">
-                    File Digital ({bookData.digitalFiles.length})
+                    File Digital Baru ({bookData.digitalFiles.length})
                   </p>
                   <div className="max-h-48 overflow-y-auto space-y-2">
                     {bookData.digitalFiles.map((file, index) => (
@@ -1116,6 +1236,53 @@ function DescriptiveCatalogingForm({ user, onBookAdded }: DescriptiveCatalogingF
                         </button>
                       </div>
                     ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Existing Digital Files List */}
+              {bookData.existingDigitalFiles && bookData.existingDigitalFiles.length > 0 && (
+                <div className="mt-4 space-y-2">
+                  <p className="text-sm font-medium text-gray-700">
+                    File Digital yang Sudah Ada ({bookData.existingDigitalFiles.length})
+                  </p>
+                  <div className="max-h-48 overflow-y-auto space-y-2">
+                    {bookData.existingDigitalFiles.map((fileUrl, index) => {
+                      const fileName = fileUrl.split('/').pop() || `File ${index + 1}`;
+                      return (
+                        <div
+                          key={index}
+                          className="flex items-center justify-between p-3 bg-green-50 rounded-lg border border-green-200"
+                        >
+                          <div className="flex items-center space-x-3">
+                            {getFileIcon(fileName)}
+                            <div>
+                              <p className="text-sm font-medium text-gray-900">{fileName}</p>
+                              <p className="text-xs text-green-600">File yang sudah ada</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <a
+                              href={fileUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="p-1 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded transition-colors"
+                              title="Buka file"
+                            >
+                              <FileText className="w-4 h-4" />
+                            </a>
+                            <button
+                              type="button"
+                              onClick={() => removeExistingDigitalFile(index)}
+                              className="p-1 text-red-500 hover:text-red-700 hover:bg-red-50 rounded transition-colors"
+                              title="Hapus file"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -1165,7 +1332,7 @@ function DescriptiveCatalogingForm({ user, onBookAdded }: DescriptiveCatalogingF
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Barcode
+                  Barcode *
                 </label>
                 <div className="flex space-x-2">
                   <input
@@ -1174,6 +1341,7 @@ function DescriptiveCatalogingForm({ user, onBookAdded }: DescriptiveCatalogingF
                     onChange={(e) => handleInputChange('barcode', e.target.value)}
                     className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     placeholder="Scan atau input manual"
+                    required
                   />
                   <button
                     type="button"
@@ -1251,7 +1419,7 @@ function DescriptiveCatalogingForm({ user, onBookAdded }: DescriptiveCatalogingF
             
             <button
               type="submit"
-              disabled={isSubmitting || !bookData.title || !bookData.category || !bookData.barcode}
+              disabled={isSubmitting || !bookData.title || !bookData.barcode}
               className="flex items-center space-x-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {isSubmitting ? (
@@ -1269,6 +1437,13 @@ function DescriptiveCatalogingForm({ user, onBookAdded }: DescriptiveCatalogingF
           </div>
         </div>
       </form>
+
+      {/* Camera Upload Modal */}
+      <CameraUploadModal
+        isOpen={showCameraModal}
+        onClose={() => setShowCameraModal(false)}
+        onImageCapture={handleCameraCapture}
+      />
     </div>
   );
 }

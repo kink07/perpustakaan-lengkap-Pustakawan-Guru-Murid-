@@ -5,22 +5,8 @@ import {
   Filter, 
   Edit, 
   Trash2, 
-  Plus, 
-  Save, 
-  X, 
   Eye,
-  Download,
-  Upload,
-  RefreshCw,
   MapPin,
-  Calendar,
-  User,
-  FileText,
-  Tag,
-  CheckCircle,
-  AlertCircle,
-  Clock,
-  Archive,
   Loader2
 } from 'lucide-react';
 import { CatalogBook } from '../types/database';
@@ -30,19 +16,18 @@ import { useNotification } from '../contexts/NotificationContext';
 interface BookListTableProps {
   user: any;
   onBookUpdated?: () => void;
+  onEditBook?: (book: CatalogBook) => void;
 }
 
-function BookListTable({ user, onBookUpdated }: BookListTableProps) {
+function BookListTable({ user, onBookUpdated, onEditBook }: BookListTableProps) {
   const { showNotification } = useNotification();
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
-  const [editData, setEditData] = useState<CatalogBook | null>(null);
   const [viewMode, setViewMode] = useState<'table' | 'grid'>('table');
   const [loading, setLoading] = useState(true);
   const [books, setBooks] = useState<CatalogBook[]>([]);
   const [selectedBooks, setSelectedBooks] = useState<string[]>([]);
   const [selectAll, setSelectAll] = useState(false);
-  const [showEditModal, setShowEditModal] = useState(false);
 
   const statusOptions = [
     { value: 'all', label: 'Semua' },
@@ -102,40 +87,11 @@ function BookListTable({ user, onBookUpdated }: BookListTableProps) {
   };
 
   const handleEdit = (book: CatalogBook) => {
-    setEditData({ ...book });
-    setShowEditModal(true);
-  };
-
-  const handleSave = async () => {
-    if (editData) {
-      try {
-        const success = await databaseService.updateCatalogBook(editData.id, editData);
-        if (success) {
-          await loadBooks();
-          setShowEditModal(false);
-          setEditData(null);
-          showNotification({
-            type: 'success',
-            title: 'Berhasil',
-            message: 'Data buku berhasil diperbarui'
-          });
-          if (onBookUpdated) onBookUpdated();
-        }
-      } catch (error) {
-        console.error('Error updating book:', error);
-        showNotification({
-          type: 'error',
-          title: 'Error',
-          message: 'Gagal memperbarui data buku'
-        });
-      }
+    if (onEditBook) {
+      onEditBook(book);
     }
   };
 
-  const handleCancel = () => {
-    setShowEditModal(false);
-    setEditData(null);
-  };
 
   const handleDelete = async (id: string) => {
     if (confirm('Apakah Anda yakin ingin menghapus buku ini?')) {
@@ -362,228 +318,6 @@ function BookListTable({ user, onBookUpdated }: BookListTableProps) {
         </div>
       </div>
 
-      {/* Edit Modal */}
-      {showEditModal && editData && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-semibold">Edit Buku</h3>
-              <button
-                onClick={handleCancel}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            
-            <form onSubmit={(e) => { e.preventDefault(); handleSave(); }} className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Judul Buku *
-                  </label>
-                  <input
-                    type="text"
-                    value={editData.title}
-                    onChange={(e) => setEditData(prev => prev ? {...prev, title: e.target.value} : null)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    required
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Pengarang *
-                  </label>
-                  <input
-                    type="text"
-                    value={editData.author}
-                    onChange={(e) => setEditData(prev => prev ? {...prev, author: e.target.value} : null)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    required
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Penerbit
-                  </label>
-                  <input
-                    type="text"
-                    value={editData.publisher || ''}
-                    onChange={(e) => setEditData(prev => prev ? {...prev, publisher: e.target.value} : null)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Tahun Terbit
-                  </label>
-                  <input
-                    type="number"
-                    value={editData.publication_year || ''}
-                    onChange={(e) => setEditData(prev => prev ? {...prev, publication_year: parseInt(e.target.value) || undefined} : null)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    ISBN
-                  </label>
-                  <input
-                    type="text"
-                    value={editData.isbn || ''}
-                    onChange={(e) => setEditData(prev => prev ? {...prev, isbn: e.target.value} : null)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Kategori
-                  </label>
-                  <input
-                    type="text"
-                    value={editData.category || ''}
-                    onChange={(e) => setEditData(prev => prev ? {...prev, category: e.target.value} : null)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Subkategori
-                  </label>
-                  <input
-                    type="text"
-                    value={editData.subcategory || ''}
-                    onChange={(e) => setEditData(prev => prev ? {...prev, subcategory: e.target.value} : null)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Bahasa
-                  </label>
-                  <input
-                    type="text"
-                    value={editData.language || ''}
-                    onChange={(e) => setEditData(prev => prev ? {...prev, language: e.target.value} : null)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Jumlah Halaman
-                  </label>
-                  <input
-                    type="number"
-                    value={editData.pages || ''}
-                    onChange={(e) => setEditData(prev => prev ? {...prev, pages: parseInt(e.target.value) || undefined} : null)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Status
-                  </label>
-                  <select
-                    value={editData.status}
-                    onChange={(e) => setEditData(prev => prev ? {...prev, status: e.target.value as any} : null)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  >
-                    <option value="available">Tersedia</option>
-                    <option value="borrowed">Dipinjam</option>
-                    <option value="reserved">Direservasi</option>
-                    <option value="damaged">Rusak</option>
-                    <option value="lost">Hilang</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Lokasi
-                  </label>
-                  <input
-                    type="text"
-                    value={editData.location || ''}
-                    onChange={(e) => setEditData(prev => prev ? {...prev, location: e.target.value} : null)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Harga (Rp)
-                  </label>
-                  <input
-                    type="number"
-                    value={editData.price || ''}
-                    onChange={(e) => setEditData(prev => prev ? {...prev, price: parseFloat(e.target.value) || undefined} : null)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Deskripsi
-                </label>
-                <textarea
-                  value={editData.description || ''}
-                  onChange={(e) => setEditData(prev => prev ? {...prev, description: e.target.value} : null)}
-                  rows={4}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Catatan
-                </label>
-                <textarea
-                  value={editData.notes || ''}
-                  onChange={(e) => setEditData(prev => prev ? {...prev, notes: e.target.value} : null)}
-                  rows={3}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-              </div>
-
-              <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200">
-                <button
-                  type="button"
-                  onClick={handleCancel}
-                  className="px-4 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-                >
-                  Batal
-                </button>
-                <button
-                  type="submit"
-                  className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                >
-                  <Save className="w-4 h-4" />
-                  <span>Simpan Perubahan</span>
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

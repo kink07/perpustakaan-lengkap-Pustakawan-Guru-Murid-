@@ -488,13 +488,13 @@ function DigitalLibrary({ currentUser, onNavigateToDashboard, onNavigateToAuth, 
 
           <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
             {filteredBooks.map((book) => (
-              <div key={book.id} className="bg-white border-2 border-blue-200 rounded-lg shadow-md hover:border-yellow-300 hover:shadow-lg transition-all duration-300 overflow-hidden group max-w-xs mx-auto">
+              <div key={book.id} className="bg-white border-2 border-blue-200 rounded-lg shadow-md hover:border-yellow-300 hover:shadow-lg transition-all duration-300 overflow-hidden group">
                 {/* Book Cover */}
                 <div className="relative overflow-hidden">
                   <img
                     src={book.cover ? `${book.cover}?t=${Date.now()}` : 'https://images.pexels.com/photos/159711/books-bookstore-book-reading-159711.jpeg?auto=compress&cs=tinysrgb&w=300'}
                     alt={book.title}
-                    className="w-full h-64 object-cover group-hover:scale-105 transition-transform duration-300"
+                    className="w-full h-48 object-contain bg-gray-50 group-hover:scale-105 transition-transform duration-300"
                     key={`${book.id}-${book.cover || 'default'}-${Date.now()}`}
                     onError={(e) => {
                       const target = e.target as HTMLImageElement;

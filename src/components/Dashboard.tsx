@@ -103,6 +103,7 @@ function Dashboard({ user, onLogout, onNavigateToLibrary, onNavigateToOPAC, onBo
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [openSubmenus, setOpenSubmenus] = useState<string[]>([]);
   const [isEditProfileOpen, setIsEditProfileOpen] = useState(false);
+  const [editingBook, setEditingBook] = useState<any>(null);
 
   // Update activeMenu when initialActiveMenu changes
   useEffect(() => {
@@ -213,6 +214,18 @@ function Dashboard({ user, onLogout, onNavigateToLibrary, onNavigateToOPAC, onBo
     }
   };
 
+  const handleEditBook = (book: any) => {
+    setEditingBook(book);
+    setActiveMenu('cataloging');
+  };
+
+  const handleBookSaved = () => {
+    setEditingBook(null);
+    if (onBookAdded) {
+      onBookAdded();
+    }
+  };
+
   const handleSaveProfile = async (userData: any) => {
     try {
       // Filter hanya field yang valid untuk database
@@ -256,9 +269,11 @@ function Dashboard({ user, onLogout, onNavigateToLibrary, onNavigateToOPAC, onBo
   const renderContent = () => {
     switch (activeMenu) {
       case 'cataloging':
-        return <DescriptiveCatalogingForm user={user} onBookAdded={onBookAdded} />;
+        return <DescriptiveCatalogingForm user={user} onBookAdded={handleBookSaved} editingBook={editingBook} />;
       case 'book-list':
-        return <BookListForm user={user} onBookAdded={onBookAdded} />;
+        return <BookListForm user={user} onBookAdded={onBookAdded} onEditBook={handleEditBook} />;
+      case 'book-list-table':
+        return <BookListTable user={user} onBookUpdated={onBookAdded} onEditBook={handleEditBook} />;
       case 'label-barcode':
         return <LabelBarcodeForm user={user} onBookAdded={onBookAdded} />;
       case 'circulation':

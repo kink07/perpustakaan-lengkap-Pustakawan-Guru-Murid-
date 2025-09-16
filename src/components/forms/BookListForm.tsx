@@ -27,9 +27,10 @@ import { ExcelUtils } from '../../utils/excelUtils';
 interface BookListFormProps {
   user: any;
   onBookAdded?: () => void;
+  onEditBook?: (book: CatalogBook) => void;
 }
 
-function BookListForm({ user, onBookAdded }: BookListFormProps) {
+function BookListForm({ user, onBookAdded, onEditBook }: BookListFormProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterCategory, setFilterCategory] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
@@ -108,60 +109,11 @@ function BookListForm({ user, onBookAdded }: BookListFormProps) {
     }
   };
 
-  // Handle edit book - redirect to cataloging form
+  // Handle edit book - use callback to Dashboard
   const handleEditBook = (book: CatalogBook) => {
-    // Store the book data to be edited in localStorage
-    const bookToEdit = {
-      ...book,
-      title: book.title || '',
-      subtitle: book.subtitle || '',
-      author: book.author || '',
-      coAuthor: book.coAuthor || '',
-      editor: book.editor || '',
-      translator: book.translator || '',
-      illustrator: book.illustrator || '',
-      category: book.category || '',
-      subcategory: book.subcategory || '',
-      publisher: book.publisher || '',
-      publicationPlace: book.publicationPlace || '',
-      publicationYear: book.publication_year?.toString() || '',
-      edition: book.edition || '',
-      isbn: book.isbn || '',
-      issn: book.issn || '',
-      series: book.series || '',
-      volume: book.volume || '',
-      language: book.language || 'Indonesia',
-      pages: book.pages?.toString() || '',
-      dimensions: book.dimensions || '',
-      abstract: book.abstract || '',
-      description: book.description || '',
-      subjects: book.subjects || [],
-      status: book.status || 'available',
-      location: book.location || '',
-      copyNumber: book.copyNumber?.toString() || '1',
-      barcode: book.barcode || '',
-      price: book.price?.toString() || '',
-      source: book.source || '',
-      acquisitionDate: book.acquisition_date || '',
-      acquisition_method: book.acquisition_method || 'Kataloging Manual',
-      condition: book.condition || 'Baik',
-      physicalDescription: book.physicalDescription || '',
-      deweyNumber: book.deweyNumber || '',
-      callNumber: book.callNumber || '',
-      contentType: book.contentType || 'Teks',
-      mediaType: book.mediaType || 'Tanpa Mediasi',
-      carrierType: book.carrierType || 'Volume',
-      notes: book.notes || '',
-      cover: book.cover_image_url || book.cover || '',
-      digitalFiles: book.digital_files || []
-    };
-    
-    // Store in localStorage for cataloging form to use
-    localStorage.setItem('editingBook', JSON.stringify(bookToEdit));
-    
-    // Navigate to cataloging form
-    window.location.href = '#cataloging';
-    window.location.reload();
+    if (onEditBook) {
+      onEditBook(book);
+    }
   };
 
   // Delete book
@@ -391,19 +343,19 @@ function BookListForm({ user, onBookAdded }: BookListFormProps) {
           <div key={book.id} className={`bg-white rounded-lg shadow-md overflow-hidden ${viewMode === 'list' ? 'flex' : ''} ${selectedBooks.includes(book.id) ? 'ring-2 ring-blue-500' : ''}`}>
             {viewMode === 'grid' ? (
               <>
-                <div className="h-48 bg-gray-200 flex items-center justify-center">
+                <div className="relative h-48 bg-gray-200">
                   {book.cover_image_url || book.cover ? (
                     <img 
                       src={book.cover_image_url || book.cover} 
                       alt={book.title} 
-                      className="w-full h-full object-cover" 
+                      className="w-full h-48 object-contain bg-gray-50" 
                       onError={(e) => {
                         e.currentTarget.style.display = 'none';
                         e.currentTarget.nextElementSibling.style.display = 'flex';
                       }}
                     />
                   ) : null}
-                  <div className="w-full h-full flex items-center justify-center" style={{ display: book.cover_image_url || book.cover ? 'none' : 'flex' }}>
+                  <div className="absolute inset-0 flex items-center justify-center" style={{ display: book.cover_image_url || book.cover ? 'none' : 'flex' }}>
                     <Book className="w-12 h-12 text-gray-400" />
                   </div>
                 </div>
