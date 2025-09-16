@@ -187,7 +187,7 @@ function StudentDigitalLibraryForm() {
             <img
               src={content.cover}
               alt={content.title}
-              className="w-full h-48 object-cover bg-gray-50"
+              className="w-full h-48 object-contain bg-gray-50"
             />
             <div className="absolute top-2 right-2">
               <span className={`flex items-center space-x-1 px-2 py-1 rounded-full text-xs font-medium ${getTypeColor(content.type)}`}>

@@ -494,7 +494,7 @@ function DigitalLibrary({ currentUser, onNavigateToDashboard, onNavigateToAuth, 
                   <img
                     src={book.cover ? `${book.cover}?t=${Date.now()}` : 'https://images.pexels.com/photos/159711/books-bookstore-book-reading-159711.jpeg?auto=compress&cs=tinysrgb&w=300'}
                     alt={book.title}
-                    className="w-full h-48 object-cover bg-gray-50 group-hover:scale-105 transition-transform duration-300"
+                    className="w-full h-48 object-contain bg-gray-50 group-hover:scale-105 transition-transform duration-300"
                     key={`${book.id}-${book.cover || 'default'}-${Date.now()}`}
                     onError={(e) => {
                       const target = e.target as HTMLImageElement;

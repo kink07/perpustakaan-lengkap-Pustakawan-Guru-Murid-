@@ -348,7 +348,7 @@ function BookListForm({ user, onBookAdded, onEditBook }: BookListFormProps) {
                     <img 
                       src={book.cover_image_url || book.cover} 
                       alt={book.title} 
-                      className="w-full h-48 object-cover bg-gray-50" 
+                      className="w-full h-48 object-contain bg-gray-50" 
                       onError={(e) => {
                         e.currentTarget.style.display = 'none';
                         e.currentTarget.nextElementSibling.style.display = 'flex';

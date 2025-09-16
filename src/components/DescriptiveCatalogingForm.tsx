@@ -1136,7 +1136,7 @@ function DescriptiveCatalogingForm({ user, onBookAdded, editingBook }: Descripti
                     <img
                       src={URL.createObjectURL(bookData.coverImage)}
                       alt="Cover Preview"
-                      className="w-full h-48 object-cover bg-gray-50 rounded-lg border border-gray-200"
+                      className="w-full h-48 object-contain bg-gray-50 rounded-lg border border-gray-200"
                     />
                     <button
                       type="button"
@@ -1158,7 +1158,7 @@ function DescriptiveCatalogingForm({ user, onBookAdded, editingBook }: Descripti
                     <img
                       src={bookData.cover}
                       alt="Existing Cover"
-                      className="w-full h-48 object-cover bg-gray-50 rounded-lg border border-gray-200"
+                      className="w-full h-48 object-contain bg-gray-50 rounded-lg border border-gray-200"
                     />
                     <button
                       type="button"

@@ -152,7 +152,7 @@ function TeacherBookmarksForm({ user }: TeacherBookmarksFormProps) {
               <img
                 src={book.cover || "https://images.pexels.com/photos/159711/books-bookstore-book-reading-159711.jpeg?auto=compress&cs=tinysrgb&w=300"}
                 alt={book.title}
-                className="w-full h-48 object-cover bg-gray-50"
+                className="w-full h-48 object-contain bg-gray-50"
               />
               <div className="absolute top-2 right-2">
                 <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full">
