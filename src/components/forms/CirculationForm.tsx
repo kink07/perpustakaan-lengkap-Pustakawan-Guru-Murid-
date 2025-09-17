@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   BookOpen, 
   Archive, 
@@ -31,6 +31,7 @@ import {
   Target,
   Award
 } from 'lucide-react';
+import { databaseService } from '../../services/database';
 
 interface CirculationFormProps {
   user?: any;
@@ -46,9 +47,32 @@ function CirculationForm({ user }: CirculationFormProps) {
     fineAmount: '',
     paymentMethod: 'cash'
   });
+  const [activeBorrowings, setActiveBorrowings] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+
+  // Load active borrowings when component mounts or when active-borrowings tab is selected
+  useEffect(() => {
+    if (activeTab === 'active-borrowings') {
+      loadActiveBorrowings();
+    }
+  }, [activeTab]);
+
+  const loadActiveBorrowings = async () => {
+    try {
+      setLoading(true);
+      const data = await databaseService.getActiveBorrowings();
+      setActiveBorrowings(data);
+    } catch (error) {
+      console.error('Error loading active borrowings:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const tabs = [
     { id: 'check-out', label: 'Peminjaman', icon: <BookOpen className="w-4 h-4" /> },
+    { id: 'active-borrowings', label: 'Peminjaman Aktif', icon: <Activity className="w-4 h-4" /> },
     { id: 'check-in', label: 'Pengembalian', icon: <Archive className="w-4 h-4" /> },
     { id: 'renewals', label: 'Perpanjangan', icon: <RefreshCw className="w-4 h-4" /> },
     { id: 'reservations', label: 'Reservasi', icon: <Bookmark className="w-4 h-4" /> },
@@ -254,6 +278,177 @@ function CirculationForm({ user }: CirculationFormProps) {
       </div>
     </div>
   );
+
+  const renderActiveBorrowings = () => {
+    const filteredBorrowings = activeBorrowings.filter(borrowing => {
+      if (!searchTerm) return true;
+      const searchLower = searchTerm.toLowerCase();
+      return (
+        borrowing.user?.name?.toLowerCase().includes(searchLower) ||
+        borrowing.book?.title?.toLowerCase().includes(searchLower) ||
+        borrowing.book?.isbn?.toLowerCase().includes(searchLower) ||
+        borrowing.user?.id?.toLowerCase().includes(searchLower)
+      );
+    });
+
+    const getStatusInfo = (dueDate: string) => {
+      const today = new Date();
+      const due = new Date(dueDate);
+      const diffTime = due.getTime() - today.getTime();
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      
+      if (diffDays < 0) {
+        return { text: 'Terlambat', className: 'bg-red-100 text-red-800' };
+      } else if (diffDays <= 2) {
+        return { text: 'Segera Jatuh Tempo', className: 'bg-yellow-100 text-yellow-800' };
+      } else {
+        return { text: 'Aktif', className: 'bg-green-100 text-green-800' };
+      }
+    };
+
+    return (
+      <div className="space-y-6">
+        <div className="bg-white border border-gray-200 rounded-lg p-6">
+          <h4 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+            <Activity className="w-5 h-5 mr-2 text-blue-600" />
+            Daftar Peminjaman Aktif
+          </h4>
+          
+          <div className="mb-4">
+            <div className="flex items-center space-x-4">
+              <div className="flex-1">
+                <input
+                  type="text"
+                  placeholder="Cari berdasarkan nama anggota, judul buku, atau barcode..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+              <button 
+                onClick={loadActiveBorrowings}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center space-x-2"
+              >
+                <Search className="w-4 h-4" />
+                <span>Refresh</span>
+              </button>
+            </div>
+          </div>
+
+          {loading ? (
+            <div className="flex items-center justify-center py-8">
+              <div className="text-gray-500">Memuat data...</div>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Anggota
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Buku
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Tanggal Pinjam
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Jatuh Tempo
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Status
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Aksi
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {filteredBorrowings.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="px-6 py-8 text-center text-gray-500">
+                        {activeBorrowings.length === 0 ? 'Tidak ada peminjaman aktif' : 'Tidak ada data yang sesuai dengan pencarian'}
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredBorrowings.map((borrowing) => {
+                      const statusInfo = getStatusInfo(borrowing.due_date);
+                      return (
+                        <tr key={borrowing.id}>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="flex items-center">
+                              <div className="flex-shrink-0 h-10 w-10">
+                                <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center">
+                                  <User className="w-5 h-5 text-blue-600" />
+                                </div>
+                              </div>
+                              <div className="ml-4">
+                                <div className="text-sm font-medium text-gray-900">
+                                  {borrowing.user?.name || 'N/A'}
+                                </div>
+                                <div className="text-sm text-gray-500">
+                                  ID: {borrowing.user?.id || 'N/A'}
+                                </div>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="text-sm font-medium text-gray-900">
+                              {borrowing.book?.title || 'N/A'}
+                            </div>
+                            <div className="text-sm text-gray-500">
+                              ISBN: {borrowing.book?.isbn || 'N/A'}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                            {borrowing.borrow_date ? new Date(borrowing.borrow_date).toLocaleDateString('id-ID') : 'N/A'}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                            {borrowing.due_date ? new Date(borrowing.due_date).toLocaleDateString('id-ID') : 'N/A'}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${statusInfo.className}`}>
+                              {statusInfo.text}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                            <button className="text-blue-600 hover:text-blue-900 mr-3">
+                              <Eye className="w-4 h-4" />
+                            </button>
+                            <button className="text-green-600 hover:text-green-900 mr-3">
+                              <RefreshCw className="w-4 h-4" />
+                            </button>
+                            <button className="text-red-600 hover:text-red-900">
+                              <Archive className="w-4 h-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <div className="mt-4 flex items-center justify-between">
+            <div className="text-sm text-gray-700">
+              Menampilkan {filteredBorrowings.length} dari {activeBorrowings.length} peminjaman aktif
+            </div>
+            <div className="flex space-x-2">
+              <button className="px-3 py-1 text-sm border border-gray-300 rounded-md hover:bg-gray-50">
+                Sebelumnya
+              </button>
+              <button className="px-3 py-1 text-sm border border-gray-300 rounded-md hover:bg-gray-50">
+                Selanjutnya
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   const renderCheckIn = () => (
     <div className="space-y-6">
@@ -900,6 +1095,7 @@ function CirculationForm({ user }: CirculationFormProps) {
       {/* Content */}
       <div className="p-6">
         {activeTab === 'check-out' && renderCheckOut()}
+        {activeTab === 'active-borrowings' && renderActiveBorrowings()}
         {activeTab === 'check-in' && renderCheckIn()}
         {activeTab === 'renewals' && renderRenewals()}
         {activeTab === 'reservations' && renderReservations()}
