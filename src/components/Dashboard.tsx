@@ -7,8 +7,6 @@ import {
   Settings, 
   Eye, 
   Archive, 
-  Tag, 
-  Folder, 
   User, 
   LogOut, 
   Search, 
@@ -16,32 +14,19 @@ import {
   Menu, 
   X, 
   ChevronDown, 
-  ChevronRight,
-  TrendingUp,
   Clock,
-  AlertCircle,
   Activity,
   Target,
   Award,
   Calendar,
   FileText,
-  Upload,
-  RefreshCw,
-  Zap,
-  Shield,
-  Database,
-  Server,
-  HardDrive,
-  Wifi,
-  Monitor,
-  Smartphone,
-  Edit3,
-  Phone,
   Heart,
   Bookmark,
   Share2,
   Building,
-  Briefcase
+  Briefcase,
+  Monitor,
+  Edit3
 } from 'lucide-react';
 
 import CirculationForm from './forms/CirculationForm';
@@ -149,7 +134,6 @@ function Dashboard({ user, onLogout, onNavigateToLibrary, onNavigateToOPAC, onBo
       return [
         ...commonItems,
         { id: 'profile', label: 'Profil Saya', icon: <User className="w-5 h-5" /> },
-        { id: 'borrowed-books', label: 'Buku Dipinjam', icon: <BookOpen className="w-5 h-5" /> },
         { id: 'class-management', label: 'Manajemen Kelas', icon: <Users className="w-5 h-5" /> },
         { id: 'curriculum-books', label: 'Buku Kurikulum', icon: <Book className="w-5 h-5" /> },
         { id: 'teaching-materials', label: 'Materi Ajar', icon: <FileText className="w-5 h-5" /> },
@@ -258,20 +242,8 @@ function Dashboard({ user, onLogout, onNavigateToLibrary, onNavigateToOPAC, onBo
 
   const renderContent = () => {
     switch (activeMenu) {
-      case 'opac':
-        // Show dashboard based on user type
-        if (dashboardType === 'librarian') {
-          return renderLibrarianDashboard();
-        } else if (dashboardType === 'teacher') {
-          return renderTeacherDashboard();
-        } else if (dashboardType === 'student') {
-          return renderStudentDashboard();
-        } else {
-          onNavigateToOPAC();
-          return null;
-        }
       case 'collection-management':
-        return <CollectionManagementForm user={user} onBookAdded={onBookAdded} />;
+        return <CollectionManagementForm user={user} onBookAdded={handleBookSaved} onEditBook={handleEditBook} editingBook={editingBook} />;
       case 'circulation':
         return <CirculationForm user={user} />;
       case 'user-management':
@@ -300,7 +272,7 @@ function Dashboard({ user, onLogout, onNavigateToLibrary, onNavigateToOPAC, onBo
       case 'teaching-materials':
         return <TeacherTeachingMaterialsForm />;
       case 'borrowed-books':
-        return <StudentBorrowedBooksForm user={currentUser} />;
+        return <StudentBorrowedBooksForm />;
       case 'favorites':
         return dashboardType === 'teacher' ? <TeacherFavoritesForm user={user} /> : <StudentFavoritesForm user={user} />;
       case 'bookmarks':
@@ -311,6 +283,9 @@ function Dashboard({ user, onLogout, onNavigateToLibrary, onNavigateToOPAC, onBo
         return <StudentDigitalLibraryForm />;
       case 'reading-history':
         return <StudentReadingHistoryForm />;
+      case 'opac':
+        onNavigateToOPAC();
+        return null;
       default:
         return null;
     }
@@ -318,215 +293,63 @@ function Dashboard({ user, onLogout, onNavigateToLibrary, onNavigateToOPAC, onBo
 
 
 
-  // Librarian dashboard stats state
-  const [librarianStats, setLibrarianStats] = useState({
-    totalBooks: 0,
-    activeBorrowings: 0,
-    totalUsers: 0,
-    overdueBorrowings: 0
-  });
-
-  // Load librarian stats
-  useEffect(() => {
-    if (dashboardType === 'librarian') {
-      const loadLibrarianStats = async () => {
-        try {
-          const [totalBooks, activeBorrowings, totalUsers, overdueBorrowings] = await Promise.all([
-            databaseService.getTotalBooks(),
-            databaseService.getTotalActiveBorrowings(),
-            databaseService.getTotalUsers(),
-            databaseService.getTotalOverdueBorrowings()
-          ]);
-
-          setLibrarianStats({
-            totalBooks,
-            activeBorrowings,
-            totalUsers,
-            overdueBorrowings
-          });
-        } catch (error) {
-          console.error('Error loading librarian stats:', error);
-        }
-      };
-
-      loadLibrarianStats();
-    }
-  }, [dashboardType]);
-
-  const renderLibrarianDashboard = () => {
-    return (
-      <div className="space-y-6">
-        {/* Welcome Section */}
-        <div className="bg-gradient-to-r from-blue-600 to-purple-600 rounded-2xl p-6 text-white">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold mb-2">Selamat Datang, {currentUser.name}</h1>
-              <p className="text-blue-100">Dashboard Pustakawan - Kelola perpustakaan digital</p>
-            </div>
-            <div className="hidden md:block">
-              <Users className="w-16 h-16 text-blue-200" />
-            </div>
+  const renderLibrarianDashboard = () => (
+    <div className="space-y-6">
+      {/* Welcome Section */}
+      <div className="bg-gradient-to-r from-blue-600 to-purple-600 rounded-2xl p-6 text-white">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold mb-2">Selamat Datang, {currentUser.name}</h1>
+            <p className="text-blue-100">Dashboard Pustakawan - Kelola perpustakaan digital</p>
           </div>
-        </div>
-
-        {/* Librarian Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-gray-600 text-sm font-medium">Total Buku</p>
-                <p className="text-2xl font-bold text-gray-900">{librarianStats.totalBooks}</p>
-              </div>
-              <Book className="w-8 h-8 text-blue-600" />
-            </div>
-          </div>
-
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-gray-600 text-sm font-medium">Peminjaman Aktif</p>
-                <p className="text-2xl font-bold text-gray-900">{librarianStats.activeBorrowings}</p>
-              </div>
-              <BookOpen className="w-8 h-8 text-green-600" />
-            </div>
-          </div>
-
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-gray-600 text-sm font-medium">Total Pengguna</p>
-                <p className="text-2xl font-bold text-gray-900">{librarianStats.totalUsers}</p>
-              </div>
-              <Users className="w-8 h-8 text-purple-600" />
-            </div>
-          </div>
-
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-gray-600 text-sm font-medium">Peminjaman Terlambat</p>
-                <p className="text-2xl font-bold text-gray-900">{librarianStats.overdueBorrowings}</p>
-              </div>
-              <AlertCircle className="w-8 h-8 text-red-600" />
-            </div>
-          </div>
-        </div>
-
-      {/* Recent Activities */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Aktivitas Terbaru</h3>
-        <div className="space-y-4">
-          <div className="text-center py-8">
-            <p className="text-gray-500">Aktivitas akan dimuat dari database</p>
+          <div className="hidden md:block">
+            <Users className="w-16 h-16 text-blue-200" />
           </div>
         </div>
       </div>
-    </div>
-  );
-  };
 
-  // Teacher dashboard stats state
-  const [teacherStats, setTeacherStats] = useState({
-    borrowedBooks: 0,
-    overdueBooks: 0,
-    dueSoonBooks: 0,
-    totalStudents: 0
-  });
-
-  // Load teacher stats
-  useEffect(() => {
-    if (dashboardType === 'teacher') {
-      const loadTeacherStats = async () => {
-        try {
-          if (currentUser && currentUser.id) {
-            const activeBorrowings = await databaseService.getActiveBorrowingsByUser(currentUser.id);
-            const today = new Date();
-            
-            const overdueBooks = activeBorrowings.filter(borrowing => {
-              const dueDate = new Date(borrowing.due_date);
-              return dueDate < today;
-            }).length;
-            
-            const dueSoonBooks = activeBorrowings.filter(borrowing => {
-              const dueDate = new Date(borrowing.due_date);
-              const daysUntilDue = Math.ceil((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-              return daysUntilDue <= 3 && daysUntilDue >= 0;
-            }).length;
-
-            setTeacherStats({
-              borrowedBooks: activeBorrowings.length,
-              overdueBooks,
-              dueSoonBooks,
-              totalStudents: 0 // Will be implemented when class management is added
-            });
-          }
-        } catch (error) {
-          console.error('Error loading teacher stats:', error);
-        }
-      };
-
-      loadTeacherStats();
-    }
-  }, [dashboardType, currentUser]);
-
-  const renderTeacherDashboard = () => {
-    return (
-      <div className="space-y-6">
-        {/* Welcome Section */}
-        <div className="bg-gradient-to-r from-green-600 to-blue-600 rounded-2xl p-6 text-white">
+      {/* Librarian Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-bold mb-2">Selamat Datang, {currentUser.name}</h1>
-              <p className="text-green-100">Dashboard Guru - Kelola pembelajaran dan materi ajar</p>
+              <p className="text-gray-600 text-sm font-medium">Total Buku</p>
+              <p className="text-2xl font-bold text-gray-900">-</p>
             </div>
-            <div className="hidden md:block">
-              <Users className="w-16 h-16 text-green-200" />
-            </div>
+            <Book className="w-8 h-8 text-blue-600" />
           </div>
         </div>
 
-        {/* Teacher Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-gray-600 text-sm font-medium">Total Siswa</p>
-                <p className="text-2xl font-bold text-gray-900">{teacherStats.totalStudents}</p>
-              </div>
-              <Users className="w-8 h-8 text-blue-600" />
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-gray-600 text-sm font-medium">Peminjaman Aktif</p>
+              <p className="text-2xl font-bold text-gray-900">-</p>
             </div>
-          </div>
-
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-gray-600 text-sm font-medium">Buku Dipinjam</p>
-                <p className="text-2xl font-bold text-gray-900">{teacherStats.borrowedBooks}</p>
-              </div>
-              <BookOpen className="w-8 h-8 text-green-600" />
-            </div>
-          </div>
-
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-gray-600 text-sm font-medium">Segera Jatuh Tempo</p>
-                <p className="text-2xl font-bold text-gray-900">{teacherStats.dueSoonBooks}</p>
-              </div>
-              <Clock className="w-8 h-8 text-yellow-600" />
-            </div>
-          </div>
-
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-gray-600 text-sm font-medium">Terlambat</p>
-                <p className="text-2xl font-bold text-gray-900">{teacherStats.overdueBooks}</p>
-              </div>
-              <AlertCircle className="w-8 h-8 text-red-600" />
-            </div>
+            <BookOpen className="w-8 h-8 text-green-600" />
           </div>
         </div>
+
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-gray-600 text-sm font-medium">Total Pengguna</p>
+              <p className="text-2xl font-bold text-gray-900">-</p>
+            </div>
+            <Users className="w-8 h-8 text-purple-600" />
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-gray-600 text-sm font-medium">Pengunjung Hari Ini</p>
+              <p className="text-2xl font-bold text-gray-900">-</p>
+            </div>
+            <Eye className="w-8 h-8 text-yellow-600" />
+          </div>
+        </div>
+      </div>
 
       {/* Recent Activities */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
@@ -540,108 +363,133 @@ function Dashboard({ user, onLogout, onNavigateToLibrary, onNavigateToOPAC, onBo
     </div>
   );
 
-  // Student dashboard stats state
-  const [studentStats, setStudentStats] = useState({
-    borrowedBooks: 0,
-    overdueBooks: 0,
-    dueSoonBooks: 0,
-    totalReservations: 0
-  });
+  const renderTeacherDashboard = () => (
+    <div className="space-y-6">
+      {/* Welcome Section */}
+      <div className="bg-gradient-to-r from-green-600 to-blue-600 rounded-2xl p-6 text-white">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold mb-2">Selamat Datang, {currentUser.name}</h1>
+            <p className="text-green-100">Dashboard Guru - Kelola pembelajaran dan materi ajar</p>
+          </div>
+          <div className="hidden md:block">
+            <Users className="w-16 h-16 text-green-200" />
+          </div>
+        </div>
+      </div>
 
-  // Load student stats
-  useEffect(() => {
-    if (dashboardType === 'student') {
-      const loadStudentStats = async () => {
-        try {
-          if (currentUser && currentUser.id) {
-            const activeBorrowings = await databaseService.getActiveBorrowingsByUser(currentUser.id);
-            const today = new Date();
-            
-            const overdueBooks = activeBorrowings.filter(borrowing => {
-              const dueDate = new Date(borrowing.due_date);
-              return dueDate < today;
-            }).length;
-            
-            const dueSoonBooks = activeBorrowings.filter(borrowing => {
-              const dueDate = new Date(borrowing.due_date);
-              const daysUntilDue = Math.ceil((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-              return daysUntilDue <= 3 && daysUntilDue >= 0;
-            }).length;
-
-            setStudentStats({
-              borrowedBooks: activeBorrowings.length,
-              overdueBooks,
-              dueSoonBooks,
-              totalReservations: 0 // Will be implemented when reservations are added
-            });
-          }
-        } catch (error) {
-          console.error('Error loading student stats:', error);
-        }
-      };
-
-      loadStudentStats();
-    }
-  }, [dashboardType, currentUser]);
-
-  const renderStudentDashboard = () => {
-    return (
-      <div className="space-y-6">
-        {/* Welcome Section */}
-        <div className="bg-gradient-to-r from-purple-600 to-pink-600 rounded-2xl p-6 text-white">
+      {/* Teacher Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-bold mb-2">Selamat Datang, {currentUser.name}</h1>
-              <p className="text-purple-100">Dashboard Siswa - Jelajahi dunia pengetahuan</p>
+              <p className="text-gray-600 text-sm font-medium">Total Siswa</p>
+              <p className="text-2xl font-bold text-gray-900">-</p>
             </div>
-            <div className="hidden md:block">
-              <BookOpen className="w-16 h-16 text-purple-200" />
-            </div>
+            <Users className="w-8 h-8 text-blue-600" />
           </div>
         </div>
 
-        {/* Student Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-gray-600 text-sm font-medium">Buku Dibaca</p>
-                <p className="text-2xl font-bold text-gray-900">-</p>
-              </div>
-              <Book className="w-8 h-8 text-blue-600" />
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-gray-600 text-sm font-medium">Materi Dibuat</p>
+              <p className="text-2xl font-bold text-gray-900">-</p>
             </div>
-          </div>
-
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-gray-600 text-sm font-medium">Sedang Dipinjam</p>
-                <p className="text-2xl font-bold text-gray-900">{studentStats.borrowedBooks}</p>
-              </div>
-              <BookOpen className="w-8 h-8 text-green-600" />
-            </div>
-          </div>
-
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-gray-600 text-sm font-medium">Segera Jatuh Tempo</p>
-                <p className="text-2xl font-bold text-gray-900">{studentStats.dueSoonBooks}</p>
-              </div>
-              <Clock className="w-8 h-8 text-yellow-600" />
-            </div>
-          </div>
-
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-gray-600 text-sm font-medium">Terlambat</p>
-                <p className="text-2xl font-bold text-gray-900">{studentStats.overdueBooks}</p>
-              </div>
-              <AlertCircle className="w-8 h-8 text-red-600" />
-            </div>
+            <FileText className="w-8 h-8 text-green-600" />
           </div>
         </div>
+
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-gray-600 text-sm font-medium">Rating Mengajar</p>
+              <p className="text-2xl font-bold text-gray-900">-</p>
+            </div>
+            <Award className="w-8 h-8 text-yellow-600" />
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-gray-600 text-sm font-medium">Kelas Aktif</p>
+              <p className="text-2xl font-bold text-gray-900">-</p>
+            </div>
+            <BookOpen className="w-8 h-8 text-purple-600" />
+          </div>
+        </div>
+      </div>
+
+      {/* Recent Activities */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">Aktivitas Terbaru</h3>
+        <div className="space-y-4">
+          <div className="text-center py-8">
+            <p className="text-gray-500">Aktivitas akan dimuat dari database</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderStudentDashboard = () => (
+    <div className="space-y-6">
+      {/* Welcome Section */}
+      <div className="bg-gradient-to-r from-purple-600 to-pink-600 rounded-2xl p-6 text-white">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold mb-2">Selamat Datang, {currentUser.name}</h1>
+            <p className="text-purple-100">Dashboard Siswa - Jelajahi dunia pengetahuan</p>
+          </div>
+          <div className="hidden md:block">
+            <BookOpen className="w-16 h-16 text-purple-200" />
+          </div>
+        </div>
+      </div>
+
+      {/* Student Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-gray-600 text-sm font-medium">Buku Dibaca</p>
+              <p className="text-2xl font-bold text-gray-900">-</p>
+            </div>
+            <Book className="w-8 h-8 text-blue-600" />
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-gray-600 text-sm font-medium">Sedang Dipinjam</p>
+              <p className="text-2xl font-bold text-gray-900">-</p>
+            </div>
+            <BookOpen className="w-8 h-8 text-green-600" />
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-gray-600 text-sm font-medium">Target Tahun Ini</p>
+              <p className="text-2xl font-bold text-gray-900">-</p>
+            </div>
+            <Target className="w-8 h-8 text-yellow-600" />
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-gray-600 text-sm font-medium">Reservasi</p>
+              <p className="text-2xl font-bold text-gray-900">-</p>
+            </div>
+            <Calendar className="w-8 h-8 text-purple-600" />
+          </div>
+        </div>
+      </div>
 
       {/* Recent Activities */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
@@ -664,7 +512,6 @@ function Dashboard({ user, onLogout, onNavigateToLibrary, onNavigateToOPAC, onBo
       </div>
     </div>
   );
-  };
 
   return (
     <div className="flex h-screen bg-gray-50 overflow-hidden">
@@ -870,12 +717,12 @@ function Dashboard({ user, onLogout, onNavigateToLibrary, onNavigateToOPAC, onBo
       )}
 
       {/* Edit Profile Modal */}
-      <EditProfileModal
-        isOpen={isEditProfileOpen}
-        onClose={() => setIsEditProfileOpen(false)}
-        user={currentUser}
-        onSave={handleSaveProfile}
-      />
+        <EditProfileModal
+          isOpen={isEditProfileOpen}
+          onClose={() => setIsEditProfileOpen(false)}
+          user={currentUser}
+          onSave={handleSaveProfile}
+        />
     </div>
   );
 }

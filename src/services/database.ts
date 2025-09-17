@@ -281,7 +281,7 @@ export const databaseService = {
   },
 
   // Book operations
-  async getBooks(): Promise<Book[]> {
+  async getBooks(): Promise<CatalogBook[]> {
     try {
       const { data, error } = await supabase
         .from('catalog_books')
@@ -294,7 +294,7 @@ export const databaseService = {
         return [];
       }
       
-      return data as Book[] || [];
+      return data as CatalogBook[] || [];
     } catch (error) {
       console.error('Error in getBooks:', error);
       return [];
@@ -2087,11 +2087,21 @@ export const databaseService = {
   },
 
   async createBookLabel(bookId: string, labelData: Partial<BookLabel>): Promise<BookLabel | null> {
+    // Get the book's barcode from catalog_books first
+    const { data: bookData } = await supabase
+      .from('catalog_books')
+      .select('barcode')
+      .eq('id', bookId)
+      .single();
+    
+    // Use the book's existing barcode, or generate new one if none exists
+    const barcode = labelData.barcode || bookData?.barcode || await this.generateBarcode();
+    
     const { data, error } = await supabase
       .from('book_labels')
       .insert({
         book_id: bookId,
-        barcode: labelData.barcode || await this.generateBarcode(),
+        barcode: barcode,
         ...labelData
       })
       .select(`
@@ -3681,6 +3691,9 @@ export const databaseService = {
   // =====================================================
 
   async getActiveBorrowings(): Promise<ActiveBorrowing[]> {
+    console.log('=== GET ACTIVE BORROWINGS DEBUG ===');
+    console.log('Fetching active borrowings from database...');
+    
     const { data, error } = await supabase
       .from('active_borrowings')
       .select(`
@@ -3690,11 +3703,21 @@ export const databaseService = {
       `)
       .order('borrow_date', { ascending: false });
     
+    console.log('Raw data from database:', data);
+    console.log('Error from database:', error);
+    
     if (error) {
       console.error('Error fetching active borrowings:', error);
+      console.error('Error details:', {
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+        code: error.code
+      });
       return [];
     }
     
+    console.log('Successfully fetched active borrowings:', data);
     return data as ActiveBorrowing[];
   },
 
@@ -3758,6 +3781,10 @@ export const databaseService = {
   },
 
   async updateActiveBorrowing(id: string, borrowingData: Partial<ActiveBorrowing>): Promise<ActiveBorrowing | null> {
+    console.log('=== UPDATE ACTIVE BORROWING DEBUG ===');
+    console.log('Updating active borrowing with ID:', id);
+    console.log('Update data:', borrowingData);
+    
     const { data, error } = await supabase
       .from('active_borrowings')
       .update(borrowingData)
@@ -3769,25 +3796,47 @@ export const databaseService = {
       `)
       .single();
     
+    console.log('Update result data:', data);
+    console.log('Update result error:', error);
+    
     if (error) {
       console.error('Error updating active borrowing:', error);
+      console.error('Error details:', {
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+        code: error.code
+      });
       return null;
     }
     
+    console.log('Successfully updated active borrowing:', data);
     return data as ActiveBorrowing;
   },
 
   async deleteActiveBorrowing(id: string): Promise<boolean> {
+    console.log('=== DELETE ACTIVE BORROWING DEBUG ===');
+    console.log('Deleting active borrowing with ID:', id);
+    
     const { error } = await supabase
       .from('active_borrowings')
       .delete()
       .eq('id', id);
     
+    console.log('Delete result error:', error);
+    
     if (error) {
       console.error('Error deleting active borrowing:', error);
+      console.error('Error details:', {
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+        code: error.code
+      });
       return false;
     }
     
+    console.log('Successfully deleted active borrowing');
     return true;
   },
 
