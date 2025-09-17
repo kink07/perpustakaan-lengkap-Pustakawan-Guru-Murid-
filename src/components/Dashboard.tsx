@@ -878,6 +878,6 @@ function Dashboard({ user, onLogout, onNavigateToLibrary, onNavigateToOPAC, onBo
       />
     </div>
   );
-}}
+}
 
 export default Dashboard;
